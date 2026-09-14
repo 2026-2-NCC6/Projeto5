@@ -1,0 +1,15 @@
+{
+  "name": "@smart-tennis-arena/shared",
+  "version": "1.0.0",
+  "description": "Contratos, regras de negócio e tipos compartilhados do Smart Tennis Arena",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "node --experimental-strip-types --test test/shared.test.ts"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  }
+}
