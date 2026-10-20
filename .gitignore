@@ -51,3 +51,6 @@ Thumbs.db
 # Large archives (uncompressed specs are in docs/spec/)
 docs/*.rar
 docs/*.zip
+
+# Other
+.doc/*

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   SafeAreaView,
   ScrollView,
@@ -13,11 +13,25 @@ import { TargetBoard } from './src/components/TargetBoard';
 import { ScoreHUD } from './src/components/ScoreHUD';
 import { EmergencyStopButton } from './src/components/EmergencyStopButton';
 import { SessionSummaryModal } from './src/components/SessionSummaryModal';
+import { AuthModal } from './src/components/AuthModal';
+import { UserManagementModal } from './src/components/UserManagementModal';
+import { AuthProvider, useAuth } from './src/context/AuthContext';
 import { DEFAULT_DRILLS } from '../packages/shared/src/contracts/drills';
 import { GameState } from '../packages/shared/src/fsm/types';
 
-export default function App() {
+function MainScreen() {
   const { state, actions } = useGameEngine();
+  const { user } = useAuth();
+
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [isUserModalOpen, setIsUserModalOpen] = useState(false);
+
+  // Sincronização automática do perfil do praticante (RF02) com o modo do jogo (RF11)
+  useEffect(() => {
+    if (user?.profile?.ageGroup) {
+      actions.setIsKidsMode(user.profile.ageGroup === 'KIDS');
+    }
+  }, [user?.profile?.ageGroup]);
 
   const isPlaying =
     state.gameState === GameState.RUNNING_TARGET_ACTIVE ||
@@ -30,38 +44,75 @@ export default function App() {
       <ScrollView contentContainerStyle={styles.container}>
         {/* Top Navbar */}
         <View style={styles.navBar}>
-          <View>
+          <View style={styles.brandContainer}>
             <Text style={styles.brandTitle}>SMART TENNIS ARENA</Text>
             <Text style={styles.brandSubtitle}>Ecossistema Gamificado de Treino (IoT)</Text>
           </View>
 
-          {/* Status do Hardware IoT */}
-          <TouchableOpacity
-            style={[
-              styles.statusBadge,
-              state.isHardwareConnected
-                ? styles.statusBadgeConnected
-                : styles.statusBadgeDisconnected,
-            ]}
-            onPress={
-              state.isHardwareConnected
-                ? actions.disconnectHardware
-                : actions.connectHardware
-            }
-          >
-            <View
+          <View style={styles.navActions}>
+            {/* Botão de Usuário / Autenticação (RF01, RF02, RF17) */}
+            <TouchableOpacity
               style={[
-                styles.statusDot,
-                state.isHardwareConnected ? styles.dotConnected : styles.dotDisconnected,
+                styles.userBadge,
+                user ? styles.userBadgeLoggedIn : styles.userBadgeLoggedOut,
               ]}
-            />
-            <Text style={styles.statusText}>
-              {state.isHardwareConnected
-                ? state.hardwareDeviceName || 'IoT Conectado'
-                : 'Conectar IoT'}
-            </Text>
-          </TouchableOpacity>
+              onPress={() => {
+                if (user) {
+                  setIsUserModalOpen(true);
+                } else {
+                  setIsAuthModalOpen(true);
+                }
+              }}
+            >
+              <Text style={styles.userBadgeText}>
+                {user
+                  ? `${user.role === 'ADMIN' ? '👑' : user.role === 'TREINADOR' ? '📋' : '🎾'} ${user.name.split(' ')[0]}`
+                  : '🔑 Entrar / Cadastrar'}
+              </Text>
+            </TouchableOpacity>
+
+            {/* Status do Hardware IoT */}
+            <TouchableOpacity
+              style={[
+                styles.statusBadge,
+                state.isHardwareConnected
+                  ? styles.statusBadgeConnected
+                  : styles.statusBadgeDisconnected,
+              ]}
+              onPress={
+                state.isHardwareConnected
+                  ? actions.disconnectHardware
+                  : actions.connectHardware
+              }
+            >
+              <View
+                style={[
+                  styles.statusDot,
+                  state.isHardwareConnected ? styles.dotConnected : styles.dotDisconnected,
+                ]}
+              />
+              <Text style={styles.statusText}>
+                {state.isHardwareConnected
+                  ? state.hardwareDeviceName || 'IoT Conectado'
+                  : 'Conectar IoT'}
+              </Text>
+            </TouchableOpacity>
+          </View>
         </View>
+
+        {/* Banner do Praticante Conectado (RF02) */}
+        {user && user.profile && (
+          <View style={styles.playerInfoBanner}>
+            <Text style={styles.playerInfoTitle}>
+              PRATICANTE: <Text style={styles.playerInfoBold}>{user.name}</Text> ({user.profile.ageGroup === 'KIDS' ? '🧒 Kids' : '🎾 Adulto/Pro'} • Nível {user.profile.skillLevel})
+            </Text>
+            {user.profile.trainingGoals && (
+              <Text style={styles.playerInfoGoal}>
+                🎯 Meta: {user.profile.trainingGoals}
+              </Text>
+            )}
+          </View>
+        )}
 
         {/* Seletor de Modo: Kids Mode vs Pro Mode (RF11) */}
         <View style={styles.modeSelector}>
@@ -164,8 +215,28 @@ export default function App() {
           onClose={() => actions.resetEmergencyStop()}
           onRestart={actions.startSession}
         />
+
+        {/* Modal de Login / Cadastro (RF01, RF02) */}
+        <AuthModal
+          visible={isAuthModalOpen}
+          onClose={() => setIsAuthModalOpen(false)}
+        />
+
+        {/* Modal de Gestão de Usuário e Admin (RF02, RF17, RF23) */}
+        <UserManagementModal
+          visible={isUserModalOpen}
+          onClose={() => setIsUserModalOpen(false)}
+        />
       </ScrollView>
     </SafeAreaView>
+  );
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <MainScreen />
+    </AuthProvider>
   );
 }
 
@@ -184,10 +255,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 12,
     paddingBottom: 12,
     borderBottomWidth: 1,
     borderBottomColor: '#1E293B',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  brandContainer: {
+    minWidth: 180,
   },
   brandTitle: {
     fontSize: 16,
@@ -200,11 +276,35 @@ const styles = StyleSheet.create({
     color: '#64748B',
     marginTop: 2,
   },
+  navActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  userBadge: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 20,
+    borderWidth: 1,
+  },
+  userBadgeLoggedIn: {
+    backgroundColor: 'rgba(56, 189, 248, 0.12)',
+    borderColor: '#38BDF8',
+  },
+  userBadgeLoggedOut: {
+    backgroundColor: 'rgba(245, 158, 11, 0.15)',
+    borderColor: '#F59E0B',
+  },
+  userBadgeText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
   statusBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingVertical: 7,
     borderRadius: 20,
     borderWidth: 1,
   },
@@ -232,6 +332,30 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
     color: '#E2E8F0',
+  },
+  playerInfoBanner: {
+    width: '100%',
+    backgroundColor: 'rgba(30, 41, 59, 0.7)',
+    borderColor: '#334155',
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    marginBottom: 10,
+  },
+  playerInfoTitle: {
+    fontSize: 11,
+    color: '#94A3B8',
+  },
+  playerInfoBold: {
+    color: '#38BDF8',
+    fontWeight: '800',
+  },
+  playerInfoGoal: {
+    fontSize: 10,
+    color: '#F59E0B',
+    marginTop: 2,
+    fontWeight: '600',
   },
   modeSelector: {
     flexDirection: 'row',
