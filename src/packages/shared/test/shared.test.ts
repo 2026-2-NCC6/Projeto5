@@ -75,17 +75,94 @@ test('Parser Serial: decodifica frame HIT com validação de campos', () => {
   }
 });
 
-test('Parser Serial: decodifica comando de emergência prioritário !EMG', () => {
-  const event = parseSerialFrame('!EMG\n');
+test('Parser Serial: decodifica frame WRONG_HIT com alvo esperado', () => {
+  const frame = '{"evt":"WRONG_HIT","tgt":3,"val":620,"expected":1,"ts":14530}\n';
+  const event = parseSerialFrame(frame);
   assert.ok(event);
-  assert.equal(event.evt, 'ESTOP_ALERT');
-  assert.equal(event.src, 'RAW_EMG');
+  assert.equal(event.evt, 'WRONG_HIT');
+  if (event.evt === 'WRONG_HIT') {
+    assert.equal(event.tgt, 3);
+    assert.equal(event.val, 620);
+    assert.equal(event.expected, 1);
+    assert.equal(event.ts, 14530);
+  }
 });
 
-test('Serializador: gera quadros JSON com delimitador newline', () => {
-  const cmdStr = serializeSerialCommand({ cmd: 'START', tgt: 1, time: 3000 });
-  assert.equal(cmdStr, '{"cmd":"START","tgt":1,"time":3000}\n');
+test('Parser Serial: decodifica frame MISS por timeout', () => {
+  const frame = '{"evt":"MISS","tgt":4,"ts":18500}\n';
+  const event = parseSerialFrame(frame);
+  assert.ok(event);
+  assert.equal(event.evt, 'MISS');
+  if (event.evt === 'MISS') {
+    assert.equal(event.tgt, 4);
+    assert.equal(event.ts, 18500);
+  }
+});
 
-  const emgStr = serializeSerialCommand('!EMG');
-  assert.equal(emgStr, '!EMG\n');
+test('Parser Serial: decodifica frame READY de inicialização do Arduino', () => {
+  const frame = '{"evt":"READY","hw":"STA-UNO-R3","fw":"1.0.0","piezo":[250,250,250,250,250]}\n';
+  const event = parseSerialFrame(frame);
+  assert.ok(event);
+  assert.equal(event.evt, 'READY');
+  if (event.evt === 'READY') {
+    assert.equal(event.hw, 'STA-UNO-R3');
+    assert.equal(event.fw, '1.0.0');
+    assert.deepEqual(event.piezo, [250, 250, 250, 250, 250]);
+  }
+});
+
+test('Parser Serial: decodifica frame PONG de teste de latência', () => {
+  const frame = '{"evt":"PONG","ts":12345}\n';
+  const event = parseSerialFrame(frame);
+  assert.ok(event);
+  assert.equal(event.evt, 'PONG');
+  if (event.evt === 'PONG') {
+    assert.equal(event.ts, 12345);
+  }
+});
+
+test('Parser Serial: decodifica comando de emergência prioritário !EMG e ESTOP_ALERT', () => {
+  const eventEmg = parseSerialFrame('!EMG\n');
+  assert.ok(eventEmg);
+  assert.equal(eventEmg.evt, 'ESTOP_ALERT');
+  assert.equal(eventEmg.src, 'RAW_EMG');
+
+  const eventAlert = parseSerialFrame('{"evt":"ESTOP_ALERT","src":"PHYSICAL_BUTTON","ts":9999}\n');
+  assert.ok(eventAlert);
+  assert.equal(eventAlert.evt, 'ESTOP_ALERT');
+  if (eventAlert.evt === 'ESTOP_ALERT') {
+    assert.equal(eventAlert.src, 'PHYSICAL_BUTTON');
+    assert.equal(eventAlert.ts, 9999);
+  }
+});
+
+test('Parser Serial: descarta frames corrompidos, vazios ou inválidos', () => {
+  assert.equal(parseSerialFrame(''), null);
+  assert.equal(parseSerialFrame('    \n'), null);
+  assert.equal(parseSerialFrame('corrupted_string_without_json'), null);
+  assert.equal(parseSerialFrame('{"evt":"UNKNOWN"}'), null);
+  assert.equal(parseSerialFrame('{"evt":"HIT","tgt":99}'), null); // Target fora de 1..5
+});
+
+test('Serializador: gera quadros JSON com delimitador newline para todos os comandos', () => {
+  const startCmd = serializeSerialCommand({ cmd: 'START', tgt: 1, time: 3000 });
+  assert.equal(startCmd, '{"cmd":"START","tgt":1,"time":3000}\n');
+
+  const buzzCmd = serializeSerialCommand({ cmd: 'BUZZ', freq: 1500, dur: 200 });
+  assert.equal(buzzCmd, '{"cmd":"BUZZ","freq":1500,"dur":200}\n');
+
+  const ledsCmd = serializeSerialCommand({ cmd: 'SET_LEDS', tgt: 2, mask: 255 });
+  assert.equal(ledsCmd, '{"cmd":"SET_LEDS","tgt":2,"mask":255}\n');
+
+  const pingCmd = serializeSerialCommand({ cmd: 'PING' });
+  assert.equal(pingCmd, '{"cmd":"PING"}\n');
+
+  const resetCmd = serializeSerialCommand({ cmd: 'RESET' });
+  assert.equal(resetCmd, '{"cmd":"RESET"}\n');
+
+  const calibCmd = serializeSerialCommand({ cmd: 'CALIB', thresh: [200, 200, 250, 250, 300] });
+  assert.equal(calibCmd, '{"cmd":"CALIB","thresh":[200,200,250,250,300]}\n');
+
+  const emgCmd = serializeSerialCommand('!EMG');
+  assert.equal(emgCmd, '!EMG\n');
 });

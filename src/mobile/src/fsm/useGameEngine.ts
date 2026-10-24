@@ -19,6 +19,7 @@ import {
 import { calculateHitScore } from '../../../packages/shared/src/rules/scoring';
 import { ISerialDriver } from '../hardware/serialInterface';
 import { mockSerialDriver } from '../hardware/mockSerialDriver';
+import { hardwareManager } from '../hardware/hardwareManager';
 
 export interface GameEngineState {
   gameState: GameState;
@@ -42,7 +43,7 @@ export interface GameEngineState {
   emergencyAlert: string | null;
 }
 
-export function useGameEngine(driver: ISerialDriver = mockSerialDriver) {
+export function useGameEngine(driver: ISerialDriver = hardwareManager) {
   const [selectedDrill, setSelectedDrill] = useState<DrillDefinition>(DEFAULT_DRILLS[0]);
   const [isKidsMode, setIsKidsMode] = useState<boolean>(true);
   const [gameState, setGameState] = useState<GameState>(GameState.IDLE);
@@ -374,8 +375,9 @@ export function useGameEngine(driver: ISerialDriver = mockSerialDriver) {
   };
 
   // Toque interativo na tela pelo usuário (simula impacto mecânico no sensor piezo)
+  // Só funciona quando o driver ativo é o Mock (simulador virtual)
   const tapTargetSimulated = useCallback((targetId: TargetId) => {
-    if (mockSerialDriver) {
+    if (hardwareManager.mode === 'MOCK') {
       mockSerialDriver.simulateHit(targetId);
     }
   }, []);

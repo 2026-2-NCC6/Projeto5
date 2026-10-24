@@ -125,11 +125,11 @@ export function parseSerialFrame(rawLine: string): SerialEvent | null {
   const line = rawLine.trim();
   if (!line) return null;
 
-  // Comando prioritário de emergência
-  if (line === '!EMG' || line.includes('"ESTOP_ALERT"')) {
+  // Comando prioritário de emergência em texto puro (sem JSON)
+  if (line === '!EMG') {
     return {
       evt: 'ESTOP_ALERT',
-      src: line === '!EMG' ? 'RAW_EMG' : 'ALERT_FRAME',
+      src: 'RAW_EMG',
     };
   }
 

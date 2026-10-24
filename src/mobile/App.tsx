@@ -15,6 +15,7 @@ import { EmergencyStopButton } from './src/components/EmergencyStopButton';
 import { SessionSummaryModal } from './src/components/SessionSummaryModal';
 import { AuthModal } from './src/components/AuthModal';
 import { UserManagementModal } from './src/components/UserManagementModal';
+import { HardwareModal } from './src/components/HardwareModal';
 import { AuthProvider, useAuth } from './src/context/AuthContext';
 import { DEFAULT_DRILLS } from '../packages/shared/src/contracts/drills';
 import { GameState } from '../packages/shared/src/fsm/types';
@@ -25,6 +26,7 @@ function MainScreen() {
 
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
+  const [isHardwareModalOpen, setIsHardwareModalOpen] = useState(false);
 
   // Sincronização automática do perfil do praticante (RF02) com o modo do jogo (RF11)
   useEffect(() => {
@@ -71,7 +73,7 @@ function MainScreen() {
               </Text>
             </TouchableOpacity>
 
-            {/* Status do Hardware IoT */}
+            {/* Status e Gestão do Hardware IoT (RF05) */}
             <TouchableOpacity
               style={[
                 styles.statusBadge,
@@ -79,11 +81,7 @@ function MainScreen() {
                   ? styles.statusBadgeConnected
                   : styles.statusBadgeDisconnected,
               ]}
-              onPress={
-                state.isHardwareConnected
-                  ? actions.disconnectHardware
-                  : actions.connectHardware
-              }
+              onPress={() => setIsHardwareModalOpen(true)}
             >
               <View
                 style={[
@@ -94,7 +92,7 @@ function MainScreen() {
               <Text style={styles.statusText}>
                 {state.isHardwareConnected
                   ? state.hardwareDeviceName || 'IoT Conectado'
-                  : 'Conectar IoT'}
+                  : '🔌 Conectar IoT (USB/Mock)'}
               </Text>
             </TouchableOpacity>
           </View>
@@ -226,6 +224,12 @@ function MainScreen() {
         <UserManagementModal
           visible={isUserModalOpen}
           onClose={() => setIsUserModalOpen(false)}
+        />
+
+        {/* Modal de Conexão e Diagnóstico de Hardware IoT (RF05) */}
+        <HardwareModal
+          visible={isHardwareModalOpen}
+          onClose={() => setIsHardwareModalOpen(false)}
         />
       </ScrollView>
     </SafeAreaView>

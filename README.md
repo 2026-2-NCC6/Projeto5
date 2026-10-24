@@ -47,6 +47,10 @@ Projeto5/
 │   └── entrega 2/
 ├── start-mysql.bat            # Script utilitário para iniciar o MySQL local com 1 clique
 ├── src/
+│   ├── firmware/              # Código-fonte embarcado para Arduino Uno R3
+│   │   └── smart_tennis_arduino/
+│   │       ├── smart_tennis_arduino.ino  # Firmware: sensores piezo, LEDs, buzzer e serial
+│   │       └── README.md                 # Guia de pinagem, upload e testes de bancada
 │   ├── backend/               # Servidor REST API em Node.js + Express + TypeScript
 │   │   ├── Dockerfile         # Configuração de container para nuvem
 │   │   ├── docker-compose.yml # Orquestração local (API + MySQL)
@@ -60,15 +64,17 @@ Projeto5/
 │   │   ├── App.tsx            # Tela principal integrada
 │   │   ├── metro.config.js    # Resolução de pacotes compartilhados (Monorepo)
 │   │   └── src/
-│   │       ├── components/    # HUD, TargetBoard, AuthModal, UserManagementModal
+│   │       ├── components/    # HUD, TargetBoard, AuthModal, HardwareModal, etc.
 │   │       ├── context/       # AuthContext (sessão persistente)
-│   │       ├── hardware/      # Driver serial e mock do simulador Arduino
+│   │       ├── fsm/           # Game Engine e Máquina de Estados (Mealy FSM)
+│   │       ├── hardware/      # Drivers: WebSerialDriver (USB real), MockSerial, HardwareManager
 │   │       └── services/      # Cliente HTTP da API REST
 │   └── packages/
 │       └── shared/            # Contratos, tipos, regras de pontuação e testes
 │           ├── src/contracts/ # Interfaces de usuário, perfil e catálogo de treinos
+│           ├── src/protocol/  # Protocolo serial: tipos, parser e serializer
 │           ├── src/rules/     # Algoritmo de pontuação e streak (RN03)
-│           └── test/          # Testes unitários automatizados
+│           └── test/          # Testes unitários automatizados (11 testes)
 └── README.md                  # Este guia
 ```
 
