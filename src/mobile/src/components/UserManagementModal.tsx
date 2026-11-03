@@ -1,16 +1,22 @@
-import React, { useState, useEffect } from 'react';
+/**
+ * Smart Tennis Arena — Gestão de Atletas e Comissões (RBAC - RF17)
+ * + Meu Perfil Esportivo (RF02) + Logs de Auditoria & Segurança (RF23)
+ * Responsivo para Smartphone, Tablet & Desktop Web
+ */
+
+import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Modal,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   View,
-  ScrollView,
   ActivityIndicator,
+  Platform,
 } from 'react-native';
 import { useAuth } from '../context/AuthContext';
-import { api } from '../services/api';
+import { api, API_BASE_URL } from '../services/api';
+import { hardwareManager } from '../hardware/hardwareManager';
 import {
   AuditLog,
   SkillLevel,
@@ -18,870 +24,1283 @@ import {
   UserRole,
   UserWithProfile,
 } from '../../../packages/shared/src/contracts/user';
+import { useAccessibility } from '../context/AccessibilityContext';
+import { useResponsive } from './useResponsive';
+import { FileTextIcon, TrashIcon, RefreshIcon } from './Icons';
 
-interface UserManagementModalProps {
-  visible: boolean;
-  onClose: () => void;
+interface ManagementViewProps {
+  onCountChange?: (count: number) => void;
+  onNavigateToArena?: () => void;
 }
 
-type TabType = 'PROFILE' | 'USERS' | 'AUDIT';
+const DEMO_FALLBACK_PROFILES: Array<{
+  id: number;
+  name: string;
+  email: string;
+  demoPass: string;
+  role: UserRole;
+  summary: string;
+}> = [
+  {
+    id: 101,
+    name: 'Lucas Praticante (Atleta)',
+    email: 'jogador@smarttennis.com',
+    demoPass: 'jogador123',
+    role: 'JOGADOR',
+    summary: 'Modo Pro • Intermediário • Precisão Forehand',
+  },
+  {
+    id: 102,
+    name: 'Carlos Treinador (Coach)',
+    email: 'treinador@smarttennis.com',
+    demoPass: 'treinador123',
+    role: 'TREINADOR',
+    summary: 'Comissão Técnica • Calibração de Protocolos',
+  },
+  {
+    id: 103,
+    name: 'Administrador Arena (Admin)',
+    email: 'admin@smarttennis.com',
+    demoPass: 'admin123',
+    role: 'ADMIN',
+    summary: 'RBAC Global • Auditoria MySQL & IoT',
+  },
+  {
+    id: 104,
+    name: 'Theo Kids (Juvenil)',
+    email: 'kids@smarttennis.com',
+    demoPass: 'kids123',
+    role: 'JOGADOR',
+    summary: 'Modo Kids (Lúdico) • Iniciante • Sem penalidade',
+  },
+];
 
-export function UserManagementModal({ visible, onClose }: UserManagementModalProps) {
-  const { user, logout, updateProfile, refreshUser } = useAuth();
-  const [activeTab, setActiveTab] = useState<TabType>('PROFILE');
+function getInitials(fullName: string): string {
+  const parts = fullName.trim().split(/\s+/);
+  if (parts.length >= 2) {
+    return (parts[0][0] + parts[1][0]).toUpperCase();
+  }
+  return fullName.slice(0, 2).toUpperCase();
+}
 
-  // Estado de Edição de Perfil (RF02)
-  const [name, setName] = useState('');
-  const [skillLevel, setSkillLevel] = useState<SkillLevel>('INICIANTE');
-  const [ageGroup, setAgeGroup] = useState<AgeGroup>('ADULTO');
-  const [trainingGoals, setTrainingGoals] = useState('');
-  const [restrictions, setRestrictions] = useState('');
-  const [isSavingProfile, setIsSavingProfile] = useState(false);
-  const [profileMessage, setProfileMessage] = useState<string | null>(null);
+function getRoleBadgeLabel(role: UserRole): string {
+  if (role === 'ADMIN') return 'ADMIN';
+  if (role === 'TREINADOR') return 'COACH';
+  return 'ATHLETE';
+}
 
-  // Estado de Gestão de Usuários (RF17 - Admin)
+export function ManagementView({
+  onCountChange,
+  onNavigateToArena,
+}: ManagementViewProps) {
+  const { theme, fs } = useAccessibility();
+  const { width, isMobile, cardPadding, sectionGap } = useResponsive();
+  const isWide = width >= 980;
+
+  const { user, login, updateProfile } = useAuth();
+
   const [usersList, setUsersList] = useState<UserWithProfile[]>([]);
   const [isLoadingUsers, setIsLoadingUsers] = useState(false);
-  const [userRoleFilter, setUserRoleFilter] = useState<string>('');
-  const [userSearchQuery, setUserSearchQuery] = useState('');
 
-  // Estado de Auditoria (RF23 - Admin)
+  const [newName, setNewName] = useState('');
+  const [newEmail, setNewEmail] = useState('');
+  const [newRole, setNewRole] = useState<UserRole>('JOGADOR');
+  const [isAddingUser, setIsAddingUser] = useState(false);
+  const [feedbackMsg, setFeedbackMsg] = useState<string | null>(null);
+
+  const [showProfileEditor, setShowProfileEditor] = useState(false);
+  const [profName, setProfName] = useState('');
+  const [profSkill, setProfSkill] = useState<SkillLevel>('INICIANTE');
+  const [profAge, setProfAge] = useState<AgeGroup>('ADULTO');
+  const [profGoals, setProfGoals] = useState('');
+  const [profRestr, setProfRestr] = useState('');
+  const [isSavingProf, setIsSavingProf] = useState(false);
+
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [isLoadingAudit, setIsLoadingAudit] = useState(false);
 
+  const isAdmin = user?.role === 'ADMIN';
+  const isCoachOrAdmin = user?.role === 'ADMIN' || user?.role === 'TREINADOR';
+
   useEffect(() => {
     if (user) {
-      setName(user.name || '');
-      setSkillLevel(user.profile?.skillLevel || 'INICIANTE');
-      setAgeGroup(user.profile?.ageGroup || 'ADULTO');
-      setTrainingGoals(user.profile?.trainingGoals || '');
-      setRestrictions(user.profile?.physicalRestrictions || '');
+      setProfName(user.name || '');
+      setProfSkill(user.profile?.skillLevel || 'INICIANTE');
+      setProfAge(user.profile?.ageGroup || 'ADULTO');
+      setProfGoals(user.profile?.trainingGoals || '');
+      setProfRestr(user.profile?.physicalRestrictions || '');
     }
   }, [user]);
 
-  // Carregar lista de usuários quando a aba USERS for selecionada
-  useEffect(() => {
-    if (visible && activeTab === 'USERS' && (user?.role === 'ADMIN' || user?.role === 'TREINADOR')) {
-      loadUsers();
-    } else if (visible && activeTab === 'AUDIT' && user?.role === 'ADMIN') {
-      loadAudit();
-    }
-  }, [visible, activeTab, userRoleFilter]);
-
-  const loadUsers = async () => {
+  const loadUsers = useCallback(async () => {
+    if (!isCoachOrAdmin) return;
     setIsLoadingUsers(true);
     try {
-      const data = await api.listUsers(userRoleFilter || undefined, userSearchQuery || undefined);
-      setUsersList(data);
-    } catch (err: any) {
-      console.error('Erro ao listar usuários:', err);
+      const list = await api.listUsers();
+      setUsersList(list);
+      onCountChange?.(list.length);
+    } catch (err) {
+      console.warn('RBAC listUsers:', err);
     } finally {
       setIsLoadingUsers(false);
     }
-  };
+  }, [isCoachOrAdmin, onCountChange]);
 
-  const loadAudit = async () => {
+  const loadAudit = useCallback(async () => {
+    if (!isAdmin) return;
     setIsLoadingAudit(true);
     try {
-      const logs = await api.getAuditLogs(30);
+      const logs = await api.getAuditLogs(15);
       setAuditLogs(logs);
-    } catch (err: any) {
-      console.error('Erro ao listar logs de auditoria:', err);
+    } catch (err) {
+      console.warn('RBAC getAuditLogs:', err);
     } finally {
       setIsLoadingAudit(false);
     }
+  }, [isAdmin]);
+
+  useEffect(() => {
+    if (isCoachOrAdmin) {
+      loadUsers();
+    } else {
+      onCountChange?.(DEMO_FALLBACK_PROFILES.length);
+    }
+    if (isAdmin) {
+      loadAudit();
+    }
+  }, [isCoachOrAdmin, isAdmin, loadUsers, loadAudit, onCountChange]);
+
+  const cycleNewRole = () => {
+    setNewRole((prev) =>
+      prev === 'JOGADOR' ? 'TREINADOR' : prev === 'TREINADOR' ? 'ADMIN' : 'JOGADOR'
+    );
   };
 
-  const handleSaveProfile = async () => {
-    setIsSavingProfile(true);
-    setProfileMessage(null);
+  const handleQuickAddUser = async () => {
+    setFeedbackMsg(null);
+    if (!newName.trim() || !newEmail.trim()) {
+      setFeedbackMsg('Preencha nome completo e e-mail institucional.');
+      return;
+    }
+
+    setIsAddingUser(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: newName.trim(),
+          email: newEmail.trim().toLowerCase(),
+          password: 'arena123',
+          role: newRole,
+          ageGroup: 'ADULTO',
+          skillLevel: 'INTERMEDIARIO',
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || 'Erro ao adicionar perfil');
+      }
+
+      setNewName('');
+      setNewEmail('');
+      setFeedbackMsg('✓ Novo perfil cadastrado no MySQL (senha padrão: arena123)');
+      if (isCoachOrAdmin) {
+        await loadUsers();
+      }
+      if (isAdmin) {
+        await loadAudit();
+      }
+    } catch (err: any) {
+      setFeedbackMsg(`⚠ ${err.message || 'Falha ao cadastrar perfil'}`);
+    } finally {
+      setIsAddingUser(false);
+    }
+  };
+
+  const handleDeleteUser = async (targetId: number) => {
+    const confirmed =
+      Platform.OS === 'web'
+        ? window.confirm('Deseja remover este perfil do banco de dados?')
+        : true;
+    if (!confirmed) return;
+
+    try {
+      await api.deleteUser(targetId);
+      await loadUsers();
+      await loadAudit();
+    } catch (err: any) {
+      setFeedbackMsg(`⚠ ${err.message || 'Sem permissão para remover'}`);
+    }
+  };
+
+  const handleToggleActive = async (u: UserWithProfile) => {
+    try {
+      await api.updateUser(u.id, { isActive: !u.isActive });
+      await loadUsers();
+      await loadAudit();
+    } catch (err: any) {
+      setFeedbackMsg(`⚠ ${err.message || 'Apenas ADMIN pode ativar/desativar contas'}`);
+    }
+  };
+
+  const handleSwitchDemoProfile = async (email: string, password: string) => {
+    setFeedbackMsg(null);
+    try {
+      await login({ email, password });
+      setFeedbackMsg('✓ Perfil autenticado via JWT com sucesso!');
+    } catch (err: any) {
+      setFeedbackMsg(`⚠ ${err.message || 'Falha ao autenticar perfil demo'}`);
+    }
+  };
+
+  const handleSaveOwnProfile = async () => {
+    setIsSavingProf(true);
+    setFeedbackMsg(null);
     try {
       await updateProfile({
-        name,
-        skillLevel,
-        ageGroup,
-        trainingGoals,
-        physicalRestrictions: restrictions,
+        name: profName,
+        skillLevel: profSkill,
+        ageGroup: profAge,
+        trainingGoals: profGoals,
+        physicalRestrictions: profRestr,
       });
-      setProfileMessage('✅ Perfil atualizado com sucesso!');
-      setTimeout(() => setProfileMessage(null), 3000);
+      setFeedbackMsg('✓ Preferências esportivas (RF02) salvas no MySQL!');
+      setShowProfileEditor(false);
+      if (isCoachOrAdmin) loadUsers();
     } catch (err: any) {
-      setProfileMessage(`❌ ${err.message || 'Erro ao atualizar'}`);
+      setFeedbackMsg(`⚠ ${err.message || 'Erro ao salvar perfil'}`);
     } finally {
-      setIsSavingProfile(false);
+      setIsSavingProf(false);
     }
   };
 
-  const handleToggleUserActive = async (targetUser: UserWithProfile) => {
-    try {
-      await api.updateUser(targetUser.id, { isActive: !targetUser.isActive });
-      loadUsers();
-    } catch (err: any) {
-      alert(err.message || 'Erro ao alterar status');
-    }
-  };
-
-  const handleDeleteUser = async (targetUserId: number) => {
-    if (confirm('Deseja realmente excluir este usuário?')) {
-      try {
-        await api.deleteUser(targetUserId);
-        loadUsers();
-      } catch (err: any) {
-        alert(err.message || 'Erro ao excluir usuário');
-      }
-    }
-  };
-
-  if (!user) return null;
-
-  const isAdmin = user.role === 'ADMIN';
-  const isCoachOrAdmin = user.role === 'ADMIN' || user.role === 'TREINADOR';
+  const hwHistory = hardwareManager.logHistory.slice(-4).reverse();
+  const displayProfilesCount = isCoachOrAdmin
+    ? usersList.length
+    : DEMO_FALLBACK_PROFILES.length;
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View style={styles.modalOverlay}>
-        <View style={styles.modalContainer}>
-          {/* Header */}
-          <View style={styles.header}>
-            <View>
-              <Text style={styles.headerTitle}>👤 PAINEL DE CONTA & PERFIL</Text>
-              <Text style={styles.headerSubtitle}>
-                {user.email} • {user.role === 'ADMIN' ? '👑 Administrador' : user.role === 'TREINADOR' ? '📋 Treinador' : '🎾 Jogador'}
-              </Text>
-            </View>
-            <TouchableOpacity style={styles.closeBtn} onPress={onClose}>
-              <Text style={styles.closeBtnText}>✕</Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* Abas */}
-          <View style={styles.tabBar}>
-            <TouchableOpacity
-              style={[styles.tabItem, activeTab === 'PROFILE' && styles.tabItemActive]}
-              onPress={() => setActiveTab('PROFILE')}
+    <View
+      style={[
+        styles.grid,
+        !isWide && styles.gridStacked,
+        { gap: sectionGap },
+      ]}
+    >
+      {/* COLUNA ESQUERDA: Gestão de Atletas e Comissões (RBAC) */}
+      <View
+        style={[
+          styles.leftCard,
+          !isWide && styles.fullWidth,
+          {
+            backgroundColor: theme.surface,
+            borderColor: theme.border,
+            padding: cardPadding,
+          },
+        ]}
+      >
+        <View style={styles.headerRow}>
+          <View style={{ flex: isMobile ? undefined : 1, width: isMobile ? '100%' : undefined }}>
+            <Text
+              style={[
+                styles.cardTitle,
+                { color: theme.text, fontSize: isMobile ? fs(16) : fs(18) },
+              ]}
             >
-              <Text style={[styles.tabText, activeTab === 'PROFILE' && styles.tabTextActive]}>
-                MEU PERFIL (RF02)
-              </Text>
-            </TouchableOpacity>
-
-            {isCoachOrAdmin && (
-              <TouchableOpacity
-                style={[styles.tabItem, activeTab === 'USERS' && styles.tabItemActive]}
-                onPress={() => setActiveTab('USERS')}
-              >
-                <Text style={[styles.tabText, activeTab === 'USERS' && styles.tabTextActive]}>
-                  GESTÃO USUÁRIOS (RF17)
-                </Text>
-              </TouchableOpacity>
-            )}
-
-            {isAdmin && (
-              <TouchableOpacity
-                style={[styles.tabItem, activeTab === 'AUDIT' && styles.tabItemActive]}
-                onPress={() => setActiveTab('AUDIT')}
-              >
-                <Text style={[styles.tabText, activeTab === 'AUDIT' && styles.tabTextActive]}>
-                  AUDITORIA (RF23)
-                </Text>
-              </TouchableOpacity>
-            )}
+              Gestão de Atletas e Comissões (RBAC)
+            </Text>
+            <Text
+              style={[
+                styles.cardSubtitle,
+                { color: theme.textSecondary, fontSize: fs(12) },
+              ]}
+            >
+              Controle de acesso por perfil e métricas acumuladas
+            </Text>
           </View>
 
-          <ScrollView style={styles.scrollContent}>
-            {/* ABA 1: MEU PERFIL */}
-            {activeTab === 'PROFILE' && (
-              <View style={styles.tabContent}>
-                {profileMessage && (
-                  <View style={styles.messageBox}>
-                    <Text style={styles.messageText}>{profileMessage}</Text>
-                  </View>
-                )}
-
-                <Text style={styles.label}>NOME COMPLETO:</Text>
-                <TextInput
-                  style={styles.input}
-                  value={name}
-                  onChangeText={setName}
-                  placeholder="Nome do atleta"
-                  placeholderTextColor="#475569"
-                />
-
-                <Text style={styles.label}>E-MAIL (NÃO EDITÁVEL):</Text>
-                <TextInput
-                  style={[styles.input, { opacity: 0.6 }]}
-                  value={user.email}
-                  editable={false}
-                />
-
-                <Text style={styles.label}>PAPEL / ROLE:</Text>
-                <View style={styles.badgeRow}>
-                  <View style={styles.roleBadge}>
-                    <Text style={styles.roleBadgeText}>{user.role}</Text>
-                  </View>
-                  <Text style={styles.roleBadgeDesc}>
-                    {user.role === 'ADMIN'
-                      ? 'Acesso irrestrito a gerenciamento, auditoria e telemetria'
-                      : user.role === 'TREINADOR'
-                      ? 'Criação e edição de treinos e acompanhamento de alunos'
-                      : 'Execução de treinos gamificados, pontuação e histórico'}
-                  </Text>
-                </View>
-
-                {/* RF02: Dados de Praticante */}
-                <View style={styles.practitionerBox}>
-                  <Text style={styles.practitionerTitle}>DADOS DO PRATICANTE (RF02)</Text>
-
-                  <Text style={styles.subLabel}>FAIXA ETÁRIA / MODO PREFERENCIAL:</Text>
-                  <View style={styles.optionRow}>
-                    <TouchableOpacity
-                      style={[
-                        styles.halfOption,
-                        ageGroup === 'KIDS' && styles.optionKidsActive,
-                      ]}
-                      onPress={() => setAgeGroup('KIDS')}
-                    >
-                      <Text style={styles.optionText}>🧒 Kids (Lúdico)</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[
-                        styles.halfOption,
-                        ageGroup === 'ADULTO' && styles.optionProActive,
-                      ]}
-                      onPress={() => setAgeGroup('ADULTO')}
-                    >
-                      <Text style={styles.optionText}>🎾 Adulto (Métrico/Pro)</Text>
-                    </TouchableOpacity>
-                  </View>
-
-                  <Text style={styles.subLabel}>NÍVEL TÉCNICO ATUAL:</Text>
-                  <View style={styles.optionRow}>
-                    {(['INICIANTE', 'INTERMEDIARIO', 'AVANCADO'] as SkillLevel[]).map((lvl) => (
-                      <TouchableOpacity
-                        key={lvl}
-                        style={[
-                          styles.levelOption,
-                          skillLevel === lvl && styles.levelOptionActive,
-                        ]}
-                        onPress={() => setSkillLevel(lvl)}
-                      >
-                        <Text
-                          style={[
-                            styles.levelText,
-                            skillLevel === lvl && styles.levelTextActive,
-                          ]}
-                        >
-                          {lvl.charAt(0) + lvl.slice(1).toLowerCase()}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-
-                  <Text style={styles.subLabel}>OBJETIVOS DE DESEMPENHO:</Text>
-                  <TextInput
-                    style={styles.input}
-                    value={trainingGoals}
-                    onChangeText={setTrainingGoals}
-                    placeholder="Ex: Velocidade de saque, precisão de voleio"
-                    placeholderTextColor="#475569"
-                  />
-
-                  <Text style={styles.subLabel}>RESTRIÇÕES FÍSICAS / NOTAS MÉDICAS:</Text>
-                  <TextInput
-                    style={styles.input}
-                    value={restrictions}
-                    onChangeText={setRestrictions}
-                    placeholder="Ex: Nenhuma ou sensibilidade articular"
-                    placeholderTextColor="#475569"
-                  />
-                </View>
-
-                <TouchableOpacity
-                  style={styles.saveBtn}
-                  onPress={handleSaveProfile}
-                  disabled={isSavingProfile}
-                >
-                  {isSavingProfile ? (
-                    <ActivityIndicator color="#0B0F19" />
-                  ) : (
-                    <Text style={styles.saveBtnText}>SALVAR ALTERAÇÕES</Text>
-                  )}
-                </TouchableOpacity>
-
-                {/* Botão de Logout */}
-                <TouchableOpacity
-                  style={styles.logoutBtn}
-                  onPress={async () => {
-                    await logout();
-                    onClose();
+          <View
+            style={[
+              styles.headerBadgesRow,
+              isMobile && { width: '100%', justifyContent: 'space-between' },
+            ]}
+          >
+            {user && (
+              <TouchableOpacity
+                style={[
+                  styles.editOwnBtn,
+                  {
+                    backgroundColor: showProfileEditor
+                      ? theme.primary
+                      : theme.surfaceMuted,
+                    borderColor: theme.borderNeutral,
+                  },
+                ]}
+                onPress={() => setShowProfileEditor((v) => !v)}
+              >
+                <Text
+                  style={{
+                    color: showProfileEditor ? '#FFFFFF' : theme.textSecondary,
+                    fontWeight: '700',
+                    fontSize: fs(11),
                   }}
                 >
-                  <Text style={styles.logoutBtnText}>🚪 ENCERRAR SESSÃO (LOGOUT)</Text>
-                </TouchableOpacity>
-              </View>
+                  {showProfileEditor ? 'Fechar RF02' : 'Meu Perfil RF02'}
+                </Text>
+              </TouchableOpacity>
             )}
 
-            {/* ABA 2: GESTÃO DE USUÁRIOS (RF17) */}
-            {activeTab === 'USERS' && isCoachOrAdmin && (
-              <View style={styles.tabContent}>
-                <View style={styles.filterBar}>
-                  <TextInput
-                    style={styles.searchInput}
-                    placeholder="Buscar por nome ou e-mail..."
-                    placeholderTextColor="#475569"
-                    value={userSearchQuery}
-                    onChangeText={setUserSearchQuery}
-                    onSubmitEditing={loadUsers}
-                  />
-                  <TouchableOpacity style={styles.searchBtn} onPress={loadUsers}>
-                    <Text style={styles.searchBtnText}>🔍</Text>
-                  </TouchableOpacity>
-                </View>
+            <View
+              style={[
+                styles.countPill,
+                { backgroundColor: theme.surfaceMint, borderColor: theme.primaryBorder },
+              ]}
+            >
+              <Text
+                style={{
+                  color: theme.primaryDark,
+                  fontWeight: '800',
+                  fontSize: fs(11),
+                }}
+              >
+                {displayProfilesCount} perfis ativos
+              </Text>
+            </View>
+          </View>
+        </View>
 
-                {/* Filtro por Role */}
-                <View style={styles.roleFilterRow}>
-                  {['', 'JOGADOR', 'TREINADOR', 'ADMIN'].map((r) => (
-                    <TouchableOpacity
-                      key={r}
+        {feedbackMsg && (
+          <View
+            style={[
+              styles.feedbackBanner,
+              { backgroundColor: theme.surfaceMint, borderColor: theme.primaryBorder },
+            ]}
+          >
+            <Text style={{ color: theme.primaryDark, fontWeight: '700', fontSize: fs(12) }}>
+              {feedbackMsg}
+            </Text>
+          </View>
+        )}
+
+        {/* Painel Expansível: Editar Meu Perfil do Praticante (RF02) */}
+        {user && showProfileEditor && (
+          <View
+            style={[
+              styles.rf02EditorBox,
+              { backgroundColor: theme.bg, borderColor: theme.primaryBorder },
+            ]}
+          >
+            <Text style={{ color: theme.primaryDark, fontWeight: '800', fontSize: fs(13), marginBottom: 10 }}>
+              Personalização Esportiva do Praticante Conectado (RF02)
+            </Text>
+
+            <View style={[styles.quickFormRow, isMobile && { flexDirection: 'column', alignItems: 'stretch' }]}>
+              <TextInput
+                style={[
+                  styles.formInput,
+                  isMobile && { width: '100%' },
+                  { backgroundColor: theme.surface, borderColor: theme.borderNeutral, color: theme.text, fontSize: fs(13) },
+                ]}
+                value={profName}
+                onChangeText={setProfName}
+                placeholder="Seu nome"
+                placeholderTextColor={theme.textMuted}
+              />
+              <TextInput
+                style={[
+                  styles.formInput,
+                  isMobile && { width: '100%' },
+                  { backgroundColor: theme.surface, borderColor: theme.borderNeutral, color: theme.text, fontSize: fs(13) },
+                ]}
+                value={profGoals}
+                onChangeText={setProfGoals}
+                placeholder="Meta de treino (ex: Reflexo de rede)"
+                placeholderTextColor={theme.textMuted}
+              />
+            </View>
+
+            <View style={[styles.quickFormRow, { marginTop: 8 }]}>
+              {(['KIDS', 'ADULTO'] as AgeGroup[]).map((ag) => (
+                <TouchableOpacity
+                  key={ag}
+                  style={[
+                    styles.chipToggle,
+                    {
+                      backgroundColor: profAge === ag ? theme.primary : theme.surface,
+                      borderColor: profAge === ag ? theme.primary : theme.borderNeutral,
+                    },
+                  ]}
+                  onPress={() => setProfAge(ag)}
+                >
+                  <Text
+                    style={{
+                      color: profAge === ag ? '#FFFFFF' : theme.textSecondary,
+                      fontWeight: '700',
+                      fontSize: fs(11),
+                    }}
+                  >
+                    {ag === 'KIDS' ? '🧒 Modo Kids' : '🎾 Modo Pro'}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+
+              {(['INICIANTE', 'INTERMEDIARIO', 'AVANCADO'] as SkillLevel[]).map(
+                (lvl) => (
+                  <TouchableOpacity
+                    key={lvl}
+                    style={[
+                      styles.chipToggle,
+                      {
+                        backgroundColor:
+                          profSkill === lvl ? theme.primarySoft : theme.surface,
+                        borderColor:
+                          profSkill === lvl ? theme.primary : theme.borderNeutral,
+                      },
+                    ]}
+                    onPress={() => setProfSkill(lvl)}
+                  >
+                    <Text
+                      style={{
+                        color:
+                          profSkill === lvl ? theme.primaryDark : theme.textSecondary,
+                        fontWeight: '700',
+                        fontSize: fs(11),
+                      }}
+                    >
+                      {lvl.charAt(0) + lvl.slice(1).toLowerCase()}
+                    </Text>
+                  </TouchableOpacity>
+                )
+              )}
+
+              <TouchableOpacity
+                style={[
+                  styles.addBtn,
+                  isMobile && { width: '100%' },
+                  { backgroundColor: theme.primary },
+                ]}
+                disabled={isSavingProf}
+                onPress={handleSaveOwnProfile}
+              >
+                <Text style={{ color: '#FFFFFF', fontWeight: '800', fontSize: fs(12) }}>
+                  {isSavingProf ? 'Salvando...' : 'Salvar RF02'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
+        {/* Barra Rápida de Adição de Perfil */}
+        <View
+          style={[
+            styles.addBar,
+            isMobile && { flexDirection: 'column', alignItems: 'stretch' },
+            { backgroundColor: theme.bg, borderColor: theme.primaryBorder },
+          ]}
+        >
+          <TextInput
+            style={[
+              styles.formInput,
+              isMobile && { width: '100%', minWidth: 0 },
+              {
+                backgroundColor: theme.surface,
+                borderColor: theme.borderNeutral,
+                color: theme.text,
+                fontSize: fs(12),
+              },
+            ]}
+            value={newName}
+            onChangeText={setNewName}
+            placeholder="Nome completo do atleta/treinador"
+            placeholderTextColor={theme.textMuted}
+          />
+          <TextInput
+            style={[
+              styles.formInput,
+              isMobile && { width: '100%', minWidth: 0 },
+              {
+                backgroundColor: theme.surface,
+                borderColor: theme.borderNeutral,
+                color: theme.text,
+                fontSize: fs(12),
+              },
+            ]}
+            value={newEmail}
+            onChangeText={setNewEmail}
+            autoCapitalize="none"
+            keyboardType="email-address"
+            placeholder="E-mail institucional"
+            placeholderTextColor={theme.textMuted}
+          />
+
+          <View
+            style={[
+              styles.addBarActionsRow,
+              isMobile && { width: '100%' },
+            ]}
+          >
+            <TouchableOpacity
+              accessibilityRole="button"
+              style={[
+                styles.roleSelectPill,
+                isMobile && { flex: 1, alignItems: 'center' },
+                { backgroundColor: theme.surface, borderColor: theme.borderNeutral },
+              ]}
+              onPress={cycleNewRole}
+            >
+              <Text style={{ color: theme.text, fontWeight: '700', fontSize: fs(11) }}>
+                {getRoleBadgeLabel(newRole)} ▾
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              accessibilityRole="button"
+              activeOpacity={0.85}
+              style={[
+                styles.addBtn,
+                isMobile && { flex: 1.4 },
+                { backgroundColor: theme.primary },
+              ]}
+              disabled={isAddingUser}
+              onPress={handleQuickAddUser}
+            >
+              <Text style={{ color: '#FFFFFF', fontWeight: '800', fontSize: fs(12) }}>
+                {isAddingUser ? '...' : '+ Adicionar'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Lista de Perfis */}
+        {isLoadingUsers ? (
+          <ActivityIndicator color={theme.primary} style={{ marginVertical: 28 }} />
+        ) : isCoachOrAdmin && usersList.length > 0 ? (
+          <View style={styles.profileList}>
+            {usersList.map((u) => {
+              const isCurrentUser = user?.id === u.id;
+              const demoMatch = DEMO_FALLBACK_PROFILES.find(
+                (d) => d.email.toLowerCase() === u.email.toLowerCase()
+              );
+
+              return (
+                <View
+                  key={u.id}
+                  style={[
+                    styles.profileCard,
+                    isMobile && { flexDirection: 'column', alignItems: 'stretch' },
+                    {
+                      backgroundColor: theme.surface,
+                      borderColor: isCurrentUser
+                        ? theme.primaryBorder
+                        : theme.borderNeutral,
+                      opacity: u.isActive ? 1 : 0.6,
+                    },
+                  ]}
+                >
+                  <View style={styles.profileLeft}>
+                    <View
                       style={[
-                        styles.filterBadge,
-                        userRoleFilter === r && styles.filterBadgeActive,
+                        styles.avatarCircle,
+                        { backgroundColor: theme.primarySoft },
                       ]}
-                      onPress={() => setUserRoleFilter(r)}
                     >
                       <Text
-                        style={[
-                          styles.filterBadgeText,
-                          userRoleFilter === r && styles.filterBadgeTextActive,
-                        ]}
+                        style={{
+                          color: theme.primaryDark,
+                          fontWeight: '800',
+                          fontSize: fs(13),
+                        }}
                       >
-                        {r === '' ? 'Todos' : r}
+                        {getInitials(u.name)}
                       </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
+                    </View>
 
-                {isLoadingUsers ? (
-                  <ActivityIndicator color="#38BDF8" style={{ marginVertical: 30 }} />
-                ) : (
-                  <View style={styles.userList}>
-                    {usersList.map((u) => (
-                      <View key={u.id} style={styles.userCard}>
-                        <View style={styles.userCardHeader}>
-                          <View>
-                            <Text style={styles.userCardName}>{u.name}</Text>
-                            <Text style={styles.userCardEmail}>{u.email}</Text>
-                          </View>
-                          <View
-                            style={[
-                              styles.userRoleTag,
-                              u.role === 'ADMIN'
-                                ? { backgroundColor: 'rgba(239, 68, 68, 0.2)', borderColor: '#EF4444' }
-                                : u.role === 'TREINADOR'
-                                ? { backgroundColor: 'rgba(139, 92, 246, 0.2)', borderColor: '#8B5CF6' }
-                                : { backgroundColor: 'rgba(56, 189, 248, 0.2)', borderColor: '#38BDF8' },
-                            ]}
+                    <View style={{ flex: 1 }}>
+                      <View style={styles.nameBadgeRow}>
+                        <Text
+                          style={[
+                            styles.profileName,
+                            { color: theme.text, fontSize: fs(13) },
+                          ]}
+                        >
+                          {u.name}
+                        </Text>
+                        <View
+                          style={[
+                            styles.roleBadge,
+                            { backgroundColor: theme.primarySoft },
+                          ]}
+                        >
+                          <Text
+                            style={{
+                              color: theme.primaryDark,
+                              fontWeight: '800',
+                              fontSize: fs(10),
+                            }}
                           >
-                            <Text style={styles.userRoleTagText}>{u.role}</Text>
-                          </View>
-                        </View>
-
-                        {/* Dados adicionais do praticante */}
-                        {u.profile && (
-                          <View style={styles.userCardProfileInfo}>
-                            <Text style={styles.userProfileDetail}>
-                              Modo: {u.profile.ageGroup === 'KIDS' ? '🧒 Kids' : '🎾 Adulto'} • Nível: {u.profile.skillLevel}
-                            </Text>
-                            {u.profile.trainingGoals && (
-                              <Text style={styles.userProfileGoals}>
-                                🎯 Meta: {u.profile.trainingGoals}
-                              </Text>
-                            )}
-                          </View>
-                        )}
-
-                        {/* Ações Administrativas (RF17) */}
-                        {isAdmin && (
-                          <View style={styles.userActionsRow}>
-                            <TouchableOpacity
-                              style={[
-                                styles.actionBtn,
-                                u.isActive ? styles.btnDeactivate : styles.btnActivate,
-                              ]}
-                              onPress={() => handleToggleUserActive(u)}
-                            >
-                              <Text style={styles.actionBtnText}>
-                                {u.isActive ? 'Desativar Conta' : 'Ativar Conta'}
-                              </Text>
-                            </TouchableOpacity>
-
-                            {u.id !== user.id && (
-                              <TouchableOpacity
-                                style={[styles.actionBtn, styles.btnDelete]}
-                                onPress={() => handleDeleteUser(u.id)}
-                              >
-                                <Text style={styles.actionBtnText}>Excluir</Text>
-                              </TouchableOpacity>
-                            )}
-                          </View>
-                        )}
-                      </View>
-                    ))}
-                  </View>
-                )}
-              </View>
-            )}
-
-            {/* ABA 3: AUDITORIA E LOGS (RF23) */}
-            {activeTab === 'AUDIT' && isAdmin && (
-              <View style={styles.tabContent}>
-                <View style={styles.auditHeader}>
-                  <Text style={styles.auditTitle}>TRILHA DE AUDITORIA E SEGURANÇA (RF23)</Text>
-                  <TouchableOpacity style={styles.refreshBtn} onPress={loadAudit}>
-                    <Text style={styles.refreshBtnText}>🔄 Atualizar</Text>
-                  </TouchableOpacity>
-                </View>
-
-                {isLoadingAudit ? (
-                  <ActivityIndicator color="#38BDF8" style={{ marginVertical: 30 }} />
-                ) : (
-                  <View style={styles.auditList}>
-                    {auditLogs.map((log) => (
-                      <View key={log.id} style={styles.auditCard}>
-                        <View style={styles.auditRowTop}>
-                          <Text style={styles.auditAction}>{log.action}</Text>
-                          <Text style={styles.auditTime}>
-                            {new Date(log.createdAt).toLocaleString('pt-BR')}
+                            {getRoleBadgeLabel(u.role)}
                           </Text>
                         </View>
-                        <Text style={styles.auditUser}>
-                          Usuário: <Text style={{ color: '#E2E8F0' }}>{log.userName || `ID #${log.userId}` || 'Anônimo'}</Text>
-                        </Text>
-                        {log.details && (
-                          <Text style={styles.auditDetails}>Info: {log.details}</Text>
-                        )}
                       </View>
-                    ))}
+
+                      <Text
+                        style={[
+                          styles.profileMeta,
+                          { color: theme.textSecondary, fontSize: fs(11) },
+                        ]}
+                      >
+                        {u.email} •{' '}
+                        {u.profile
+                          ? `${u.profile.ageGroup === 'KIDS' ? 'Modo Kids' : 'Modo Pro'} • ${u.profile.skillLevel}`
+                          : 'Conta verificada'}
+                      </Text>
+                    </View>
                   </View>
-                )}
+
+                  <View
+                    style={[
+                      styles.profileActions,
+                      isMobile && { justifyContent: 'flex-end', width: '100%' },
+                    ]}
+                  >
+                    {isCurrentUser ? (
+                      <View
+                        style={[
+                          styles.activeProfileBtn,
+                          { backgroundColor: theme.primary },
+                        ]}
+                      >
+                        <Text
+                          style={{
+                            color: '#FFFFFF',
+                            fontWeight: '800',
+                            fontSize: fs(11),
+                          }}
+                        >
+                          Perfil em Uso
+                        </Text>
+                      </View>
+                    ) : demoMatch ? (
+                      <TouchableOpacity
+                        style={[
+                          styles.switchProfileBtn,
+                          {
+                            backgroundColor: theme.surface,
+                            borderColor: theme.primaryBorder,
+                          },
+                        ]}
+                        onPress={async () => {
+                          await handleSwitchDemoProfile(
+                            demoMatch.email,
+                            demoMatch.demoPass
+                          );
+                          onNavigateToArena?.();
+                        }}
+                      >
+                        <Text
+                          style={{
+                            color: theme.primaryDark,
+                            fontWeight: '700',
+                            fontSize: fs(11),
+                          }}
+                        >
+                          Usar Perfil
+                        </Text>
+                      </TouchableOpacity>
+                    ) : isAdmin ? (
+                      <TouchableOpacity
+                        style={[
+                          styles.switchProfileBtn,
+                          {
+                            backgroundColor: theme.surface,
+                            borderColor: theme.borderNeutral,
+                          },
+                        ]}
+                        onPress={() => handleToggleActive(u)}
+                      >
+                        <Text
+                          style={{
+                            color: theme.textSecondary,
+                            fontWeight: '700',
+                            fontSize: fs(11),
+                          }}
+                        >
+                          {u.isActive ? 'Ativo' : 'Inativo'}
+                        </Text>
+                      </TouchableOpacity>
+                    ) : null}
+
+                    {isAdmin && !isCurrentUser && (
+                      <TouchableOpacity
+                        accessibilityLabel={`Remover ${u.name}`}
+                        style={styles.trashBtn}
+                        onPress={() => handleDeleteUser(u.id)}
+                      >
+                        <TrashIcon size={16} color={theme.textMuted} />
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+        ) : (
+          <View style={styles.profileList}>
+            {DEMO_FALLBACK_PROFILES.map((item) => {
+              const isCurrent =
+                user?.email.toLowerCase() === item.email.toLowerCase();
+
+              return (
+                <View
+                  key={item.id}
+                  style={[
+                    styles.profileCard,
+                    isMobile && { flexDirection: 'column', alignItems: 'stretch' },
+                    {
+                      backgroundColor: theme.surface,
+                      borderColor: isCurrent
+                        ? theme.primaryBorder
+                        : theme.borderNeutral,
+                    },
+                  ]}
+                >
+                  <View style={styles.profileLeft}>
+                    <View
+                      style={[
+                        styles.avatarCircle,
+                        { backgroundColor: theme.primarySoft },
+                      ]}
+                    >
+                      <Text
+                        style={{
+                          color: theme.primaryDark,
+                          fontWeight: '800',
+                          fontSize: fs(13),
+                        }}
+                      >
+                        {getInitials(item.name)}
+                      </Text>
+                    </View>
+
+                    <View style={{ flex: 1 }}>
+                      <View style={styles.nameBadgeRow}>
+                        <Text
+                          style={[
+                            styles.profileName,
+                            { color: theme.text, fontSize: fs(13) },
+                          ]}
+                        >
+                          {item.name}
+                        </Text>
+                        <View
+                          style={[
+                            styles.roleBadge,
+                            { backgroundColor: theme.primarySoft },
+                          ]}
+                        >
+                          <Text
+                            style={{
+                              color: theme.primaryDark,
+                              fontWeight: '800',
+                              fontSize: fs(10),
+                            }}
+                          >
+                            {getRoleBadgeLabel(item.role)}
+                          </Text>
+                        </View>
+                      </View>
+                      <Text
+                        style={[
+                          styles.profileMeta,
+                          { color: theme.textSecondary, fontSize: fs(11) },
+                        ]}
+                      >
+                        {item.email} • {item.summary}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <View
+                    style={[
+                      styles.profileActions,
+                      isMobile && { justifyContent: 'flex-end', width: '100%' },
+                    ]}
+                  >
+                    {isCurrent ? (
+                      <View
+                        style={[
+                          styles.activeProfileBtn,
+                          { backgroundColor: theme.primary },
+                        ]}
+                      >
+                        <Text
+                          style={{
+                            color: '#FFFFFF',
+                            fontWeight: '800',
+                            fontSize: fs(11),
+                          }}
+                        >
+                          Perfil em Uso
+                        </Text>
+                      </View>
+                    ) : (
+                      <TouchableOpacity
+                        style={[
+                          styles.switchProfileBtn,
+                          {
+                            backgroundColor: theme.surface,
+                            borderColor: theme.primaryBorder,
+                          },
+                        ]}
+                        onPress={() =>
+                          handleSwitchDemoProfile(item.email, item.demoPass)
+                        }
+                      >
+                        <Text
+                          style={{
+                            color: theme.primaryDark,
+                            fontWeight: '700',
+                            fontSize: fs(11),
+                          }}
+                        >
+                          Usar Perfil
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+        )}
+      </View>
+
+      {/* COLUNA DIREITA: Logs de Auditoria & Segurança */}
+      <View
+        style={[
+          styles.rightCard,
+          !isWide && styles.fullWidth,
+          {
+            backgroundColor: theme.surface,
+            borderColor: theme.border,
+            padding: cardPadding,
+          },
+        ]}
+      >
+        <View style={styles.headerRow}>
+          <View style={styles.auditTitleRow}>
+            <FileTextIcon size={18} color={theme.primary} />
+            <Text
+              style={[
+                styles.cardTitle,
+                { color: theme.text, fontSize: isMobile ? fs(16) : fs(17) },
+              ]}
+            >
+              Logs de Auditoria & Segurança
+            </Text>
+          </View>
+
+          <TouchableOpacity
+            style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}
+            onPress={() => {
+              if (isAdmin) loadAudit();
+            }}
+          >
+            {isAdmin && <RefreshIcon size={13} color={theme.primaryDark} />}
+            <Text
+              style={{
+                color: theme.primaryDark,
+                fontWeight: '700',
+                fontSize: fs(11),
+              }}
+            >
+              MySQL Audit Trail
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {isLoadingAudit ? (
+          <ActivityIndicator color={theme.primary} style={{ marginVertical: 24 }} />
+        ) : (
+          <View style={styles.auditList}>
+            {isAdmin &&
+              auditLogs.slice(0, 6).map((log) => {
+                const timeOnly = new Date(log.createdAt)
+                  .toTimeString()
+                  .split(' ')[0];
+                const isWarn =
+                  log.action.includes('DELETE') ||
+                  log.action.includes('FAIL') ||
+                  log.action.includes('STOP');
+
+                return (
+                  <View
+                    key={`db-${log.id}`}
+                    style={[
+                      styles.auditItem,
+                      {
+                        backgroundColor: theme.bg,
+                        borderColor: theme.border,
+                      },
+                    ]}
+                  >
+                    <View style={styles.auditItemTop}>
+                      <Text
+                        style={{
+                          color: theme.text,
+                          fontWeight: '800',
+                          fontSize: fs(12),
+                          flex: 1,
+                        }}
+                      >
+                        {log.userName || 'Sistema MySQL'}
+                      </Text>
+                      <View
+                        style={[
+                          styles.auditTag,
+                          {
+                            backgroundColor: isWarn
+                              ? theme.warningSoft
+                              : theme.primarySoft,
+                          },
+                        ]}
+                      >
+                        <Text
+                          style={{
+                            color: isWarn ? theme.warning : theme.primaryDark,
+                            fontWeight: '800',
+                            fontSize: fs(10),
+                          }}
+                        >
+                          {isWarn ? 'WARN' : 'INFO'} • {timeOnly}
+                        </Text>
+                      </View>
+                    </View>
+                    <Text
+                      style={{
+                        color: theme.textSecondary,
+                        fontSize: fs(11),
+                        marginTop: 4,
+                      }}
+                    >
+                      {log.action}: {log.details || 'Evento auditado com sucesso'}
+                    </Text>
+                  </View>
+                );
+              })}
+
+            {hwHistory.map((h) => {
+              const isWarn = h.direction === 'ERR' || h.message.includes('CALIB');
+              return (
+                <View
+                  key={h.id}
+                  style={[
+                    styles.auditItem,
+                    {
+                      backgroundColor: theme.bg,
+                      borderColor: theme.border,
+                    },
+                  ]}
+                >
+                  <View style={styles.auditItemTop}>
+                    <Text
+                      style={{
+                        color: theme.text,
+                        fontWeight: '800',
+                        fontSize: fs(12),
+                        flex: 1,
+                      }}
+                    >
+                      {h.direction === 'ERR' ? 'Segurança Fail-Safe' : 'Sistema Arduino'}
+                    </Text>
+                    <View
+                      style={[
+                        styles.auditTag,
+                        {
+                          backgroundColor: isWarn
+                            ? theme.warningSoft
+                            : theme.primarySoft,
+                        },
+                      ]}
+                    >
+                      <Text
+                        style={{
+                          color: isWarn ? theme.warning : theme.primaryDark,
+                          fontWeight: '800',
+                          fontSize: fs(10),
+                        }}
+                      >
+                        {isWarn ? 'WARN' : 'INFO'} • {h.timestamp}
+                      </Text>
+                    </View>
+                  </View>
+                  <Text
+                    style={{
+                      color: theme.textSecondary,
+                      fontSize: fs(11),
+                      marginTop: 4,
+                    }}
+                  >
+                    {h.message}
+                  </Text>
+                </View>
+              );
+            })}
+
+            {!isAdmin && (
+              <View
+                style={[
+                  styles.rbacNotice,
+                  {
+                    backgroundColor: theme.surfaceMuted,
+                    borderColor: theme.borderNeutral,
+                  },
+                ]}
+              >
+                <Text
+                  style={{
+                    color: theme.textSecondary,
+                    fontSize: fs(11),
+                    lineHeight: 16,
+                  }}
+                >
+                  🔒 RBAC Ativo (RF23): Selecione &quot;Usar Perfil&quot; no Administrador Arena para carregar todos os registros globais da tabela `audit_logs` do MySQL.
+                </Text>
               </View>
             )}
-          </ScrollView>
-        </View>
+          </View>
+        )}
       </View>
-    </Modal>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.85)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 16,
-  },
-  modalContainer: {
-    backgroundColor: '#0F172A',
+  grid: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
     width: '100%',
-    maxWidth: 580,
-    maxHeight: '92%',
+  },
+  gridStacked: {
+    flexDirection: 'column',
+  },
+  fullWidth: {
+    width: '100%',
+  },
+  leftCard: {
+    flex: 5.8,
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: '#334155',
-    overflow: 'hidden',
+    shadowColor: '#059669',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.04,
+    shadowRadius: 12,
+    elevation: 1,
   },
-  header: {
+  rightCard: {
+    flex: 4.2,
+    borderRadius: 20,
+    borderWidth: 1,
+    shadowColor: '#059669',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.04,
+    shadowRadius: 12,
+    elevation: 1,
+  },
+  headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 18,
-    borderBottomWidth: 1,
-    borderBottomColor: '#1E293B',
-    backgroundColor: '#0B0F19',
+    flexWrap: 'wrap',
+    gap: 10,
+    marginBottom: 16,
   },
-  headerTitle: {
-    fontSize: 16,
-    fontWeight: '900',
-    color: '#38BDF8',
-    letterSpacing: 1,
+  headerBadgesRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
-  headerSubtitle: {
-    fontSize: 11,
-    color: '#64748B',
+  auditTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexShrink: 1,
+  },
+  cardTitle: {
+    fontWeight: '800',
+    letterSpacing: -0.3,
+    flexShrink: 1,
+  },
+  cardSubtitle: {
     marginTop: 2,
   },
-  closeBtn: {
-    padding: 8,
-  },
-  closeBtnText: {
-    fontSize: 18,
-    color: '#94A3B8',
-    fontWeight: '700',
-  },
-  tabBar: {
-    flexDirection: 'row',
-    backgroundColor: '#1E293B',
-  },
-  tabItem: {
-    flex: 1,
-    paddingVertical: 12,
-    alignItems: 'center',
-    borderBottomWidth: 3,
-    borderBottomColor: 'transparent',
-  },
-  tabItemActive: {
-    borderBottomColor: '#38BDF8',
-    backgroundColor: 'rgba(56, 189, 248, 0.08)',
-  },
-  tabText: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#64748B',
-    letterSpacing: 0.5,
-  },
-  tabTextActive: {
-    color: '#38BDF8',
-  },
-  scrollContent: {
-    padding: 16,
-  },
-  tabContent: {
-    paddingBottom: 20,
-  },
-  messageBox: {
-    backgroundColor: 'rgba(16, 185, 129, 0.15)',
-    borderColor: '#10B981',
-    borderWidth: 1,
-    borderRadius: 8,
-    padding: 10,
-    marginBottom: 12,
-  },
-  messageText: {
-    color: '#10B981',
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  label: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: '#94A3B8',
-    marginBottom: 4,
-    marginTop: 8,
-    letterSpacing: 0.5,
-  },
-  subLabel: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: '#94A3B8',
-    marginBottom: 4,
-    marginTop: 8,
-  },
-  input: {
-    backgroundColor: '#020617',
-    borderWidth: 1,
-    borderColor: '#334155',
-    borderRadius: 8,
-    paddingVertical: 10,
+  countPill: {
     paddingHorizontal: 12,
-    color: '#FFFFFF',
-    fontSize: 13,
-    marginBottom: 6,
-  },
-  badgeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    marginVertical: 6,
-  },
-  roleBadge: {
-    backgroundColor: '#0284C7',
-    paddingVertical: 4,
-    paddingHorizontal: 10,
-    borderRadius: 6,
-  },
-  roleBadgeText: {
-    color: '#FFFFFF',
-    fontWeight: '900',
-    fontSize: 11,
-  },
-  roleBadgeDesc: {
-    flex: 1,
-    fontSize: 10,
-    color: '#64748B',
-  },
-  practitionerBox: {
-    backgroundColor: '#0B0F19',
-    borderColor: '#1E293B',
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: 12,
-    marginVertical: 12,
-  },
-  practitionerTitle: {
-    fontSize: 11,
-    fontWeight: '900',
-    color: '#F59E0B',
-    letterSpacing: 0.5,
-    marginBottom: 6,
-  },
-  optionRow: {
-    flexDirection: 'row',
-    gap: 6,
-    marginBottom: 8,
-  },
-  halfOption: {
-    flex: 1,
-    backgroundColor: '#1E293B',
-    paddingVertical: 8,
-    borderRadius: 8,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#334155',
-  },
-  optionKidsActive: {
-    backgroundColor: '#D97706',
-    borderColor: '#F59E0B',
-  },
-  optionProActive: {
-    backgroundColor: '#0284C7',
-    borderColor: '#38BDF8',
-  },
-  optionText: {
-    color: '#FFFFFF',
-    fontSize: 11,
-    fontWeight: '800',
-  },
-  levelOption: {
-    flex: 1,
-    backgroundColor: '#1E293B',
     paddingVertical: 6,
-    borderRadius: 8,
-    alignItems: 'center',
+    borderRadius: 999,
     borderWidth: 1,
-    borderColor: '#334155',
   },
-  levelOptionActive: {
-    borderColor: '#10B981',
-    backgroundColor: 'rgba(16, 185, 129, 0.15)',
-  },
-  levelText: {
-    fontSize: 10,
-    color: '#64748B',
-    fontWeight: '700',
-  },
-  levelTextActive: {
-    color: '#10B981',
-  },
-  saveBtn: {
-    backgroundColor: '#10B981',
-    paddingVertical: 12,
-    borderRadius: 10,
-    alignItems: 'center',
-    marginTop: 10,
-  },
-  saveBtnText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '900',
-    letterSpacing: 1,
-  },
-  logoutBtn: {
-    backgroundColor: 'rgba(239, 68, 68, 0.15)',
-    borderWidth: 1,
-    borderColor: '#EF4444',
-    paddingVertical: 12,
-    borderRadius: 10,
-    alignItems: 'center',
-    marginTop: 14,
-  },
-  logoutBtnText: {
-    color: '#EF4444',
-    fontSize: 12,
-    fontWeight: '800',
-    letterSpacing: 0.5,
-  },
-  filterBar: {
-    flexDirection: 'row',
-    gap: 6,
-    marginBottom: 10,
-  },
-  searchInput: {
-    flex: 1,
-    backgroundColor: '#020617',
-    borderWidth: 1,
-    borderColor: '#334155',
-    borderRadius: 8,
-    paddingVertical: 8,
+  editOwnBtn: {
     paddingHorizontal: 12,
-    color: '#FFFFFF',
-    fontSize: 12,
-  },
-  searchBtn: {
-    backgroundColor: '#1E293B',
-    paddingHorizontal: 14,
-    borderRadius: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
+    paddingVertical: 6,
+    borderRadius: 999,
     borderWidth: 1,
-    borderColor: '#334155',
   },
-  searchBtnText: {
-    fontSize: 14,
-  },
-  roleFilterRow: {
-    flexDirection: 'row',
-    gap: 6,
+  feedbackBanner: {
+    paddingVertical: 9,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    borderWidth: 1,
     marginBottom: 14,
   },
-  filterBadge: {
-    paddingVertical: 5,
-    paddingHorizontal: 10,
-    borderRadius: 6,
-    backgroundColor: '#020617',
+  rf02EditorBox: {
+    padding: 14,
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#334155',
+    marginBottom: 16,
   },
-  filterBadgeActive: {
-    borderColor: '#38BDF8',
-    backgroundColor: 'rgba(56, 189, 248, 0.15)',
+  quickFormRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    alignItems: 'center',
   },
-  filterBadgeText: {
-    fontSize: 10,
-    color: '#64748B',
-    fontWeight: '700',
+  chipToggle: {
+    flexGrow: 1,
+    alignItems: 'center',
+    paddingHorizontal: 11,
+    paddingVertical: 8,
+    borderRadius: 9,
+    borderWidth: 1,
   },
-  filterBadgeTextActive: {
-    color: '#38BDF8',
-  },
-  userList: {
+  addBar: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 10,
+    padding: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    marginBottom: 16,
+    alignItems: 'center',
   },
-  userCard: {
-    backgroundColor: '#0B0F19',
+  addBarActionsRow: {
+    flexDirection: 'row',
+    gap: 8,
+    alignItems: 'center',
+  },
+  formInput: {
+    flex: 1,
+    minWidth: 155,
+    minHeight: 42,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+  },
+  roleSelectPill: {
+    minHeight: 42,
+    justifyContent: 'center',
+    paddingHorizontal: 13,
+    paddingVertical: 9,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#1E293B',
-    padding: 12,
   },
-  userCardHeader: {
+  addBtn: {
+    minHeight: 42,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  profileList: {
+    gap: 10,
+  },
+  profileCard: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 6,
-  },
-  userCardName: {
-    color: '#FFFFFF',
-    fontSize: 13,
-    fontWeight: '800',
-  },
-  userCardEmail: {
-    color: '#64748B',
-    fontSize: 11,
-  },
-  userRoleTag: {
+    flexWrap: 'wrap',
+    gap: 10,
+    padding: 13,
+    borderRadius: 14,
     borderWidth: 1,
-    borderRadius: 6,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
   },
-  userRoleTagText: {
-    color: '#FFFFFF',
-    fontSize: 9,
+  profileLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 11,
+    flex: 1,
+  },
+  avatarCircle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  nameBadgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginBottom: 2,
+  },
+  profileName: {
     fontWeight: '800',
   },
-  userCardProfileInfo: {
-    marginTop: 4,
-    paddingTop: 4,
-    borderTopWidth: 1,
-    borderTopColor: '#1E293B',
-  },
-  userProfileDetail: {
-    color: '#94A3B8',
-    fontSize: 10,
-  },
-  userProfileGoals: {
-    color: '#F59E0B',
-    fontSize: 10,
-    marginTop: 2,
-  },
-  userActionsRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginTop: 10,
-  },
-  actionBtn: {
-    paddingVertical: 5,
-    paddingHorizontal: 10,
+  roleBadge: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
     borderRadius: 6,
   },
-  btnActivate: {
-    backgroundColor: 'rgba(16, 185, 129, 0.2)',
+  profileMeta: {
+    fontWeight: '500',
   },
-  btnDeactivate: {
-    backgroundColor: 'rgba(245, 158, 11, 0.2)',
-  },
-  btnDelete: {
-    backgroundColor: 'rgba(239, 68, 68, 0.2)',
-  },
-  actionBtnText: {
-    color: '#E2E8F0',
-    fontSize: 10,
-    fontWeight: '700',
-  },
-  auditHeader: {
+  profileActions: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 10,
+    gap: 10,
   },
-  auditTitle: {
-    fontSize: 11,
-    fontWeight: '900',
-    color: '#38BDF8',
+  activeProfileBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 999,
   },
-  refreshBtn: {
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-    backgroundColor: '#1E293B',
-    borderRadius: 6,
+  switchProfileBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1,
   },
-  refreshBtnText: {
-    fontSize: 10,
-    color: '#94A3B8',
-    fontWeight: '700',
+  trashBtn: {
+    padding: 8,
   },
   auditList: {
-    gap: 8,
+    gap: 10,
   },
-  auditCard: {
-    backgroundColor: '#0B0F19',
-    borderRadius: 8,
+  auditItem: {
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#1E293B',
-    padding: 10,
+    padding: 13,
   },
-  auditRowTop: {
+  auditItemTop: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 4,
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
   },
-  auditAction: {
-    color: '#10B981',
-    fontWeight: '800',
-    fontSize: 11,
+  auditTag: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
   },
-  auditTime: {
-    color: '#64748B',
-    fontSize: 10,
-  },
-  auditUser: {
-    fontSize: 10,
-    color: '#94A3B8',
-  },
-  auditDetails: {
-    fontSize: 10,
-    color: '#64748B',
-    marginTop: 2,
+  rbacNotice: {
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginTop: 4,
   },
 });

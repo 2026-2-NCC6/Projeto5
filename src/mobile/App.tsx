@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   SafeAreaView,
   ScrollView,
@@ -11,465 +11,1113 @@ import {
 import { useGameEngine } from './src/fsm/useGameEngine';
 import { TargetBoard } from './src/components/TargetBoard';
 import { ScoreHUD } from './src/components/ScoreHUD';
-import { EmergencyStopButton } from './src/components/EmergencyStopButton';
-import { SessionSummaryModal } from './src/components/SessionSummaryModal';
-import { AuthModal } from './src/components/AuthModal';
-import { UserManagementModal } from './src/components/UserManagementModal';
-import { HardwareModal } from './src/components/HardwareModal';
+import { DrillCatalogCard } from './src/components/DrillCatalogCard';
+import { SessionSummaryView } from './src/components/SessionSummaryModal';
+import { HardwareView } from './src/components/HardwareModal';
+import { ManagementView } from './src/components/UserManagementModal';
+import { AuthView } from './src/components/AuthModal';
+import { useResponsive } from './src/components/useResponsive';
 import { AuthProvider, useAuth } from './src/context/AuthContext';
+import {
+  AccessibilityProvider,
+  useAccessibility,
+} from './src/context/AccessibilityContext';
+import { hardwareManager } from './src/hardware/hardwareManager';
 import { DEFAULT_DRILLS } from '../packages/shared/src/contracts/drills';
 import { GameState } from '../packages/shared/src/fsm/types';
+import {
+  TargetIcon,
+  AwardIcon,
+  CpuIcon,
+  UsersIcon,
+  LockIcon,
+  EyeIcon,
+  VolumeIcon,
+  VolumeMuteIcon,
+} from './src/components/Icons';
 
-function MainScreen() {
+type AppTab = 'ARENA' | 'SUMMARY' | 'HARDWARE' | 'MANAGEMENT' | 'AUTH';
+
+function getInitials(name: string): string {
+  const parts = name.trim().split(/\s+/);
+  if (parts.length >= 2) {
+    return (parts[0][0] + parts[1][0]).toUpperCase();
+  }
+  return name.slice(0, 2).toUpperCase();
+}
+
+function getShortFsmTag(gs: GameState): string {
+  switch (gs) {
+    case GameState.COUNTDOWN:
+      return 'PREP';
+    case GameState.RUNNING_TARGET_ACTIVE:
+      return 'ACTIVE';
+    case GameState.TARGET_HIT:
+      return 'HIT';
+    case GameState.TARGET_MISS_TIMEOUT:
+      return 'MISS';
+    case GameState.COMPLETED:
+      return 'DONE';
+    case GameState.EMERGENCY_STOP:
+      return 'STOP';
+    default:
+      return 'IDLE';
+  }
+}
+
+function MainWorkspace() {
   const { state, actions } = useGameEngine();
   const { user } = useAuth();
+  const {
+    theme,
+    fs,
+    highContrast,
+    toggleHighContrast,
+    fontStep,
+    cycleFontSize,
+    soundEnabled,
+    toggleSound,
+    playSound,
+  } = useAccessibility();
 
-  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
-  const [isUserModalOpen, setIsUserModalOpen] = useState(false);
-  const [isHardwareModalOpen, setIsHardwareModalOpen] = useState(false);
+  const {
+    isMobile,
+    isSmallPhone,
+    isCompactNav,
+    isDesktop,
+    pagePadding,
+    sectionGap,
+  } = useResponsive();
+
+  const [activeTab, setActiveTab] = useState<AppTab>('ARENA');
+  const [profilesCount, setProfilesCount] = useState<number>(4);
 
   // Sincronização automática do perfil do praticante (RF02) com o modo do jogo (RF11)
   useEffect(() => {
     if (user?.profile?.ageGroup) {
-      actions.setIsKidsMode(user.profile.ageGroup === 'KIDS');
+      const kids = user.profile.ageGroup === 'KIDS';
+      actions.setIsKidsMode(kids);
+      if (kids && !state.selectedDrill.isKidsAdapted) {
+        actions.setSelectedDrill(DEFAULT_DRILLS[0]);
+      } else if (!kids && state.selectedDrill.isKidsAdapted && DEFAULT_DRILLS[1]) {
+        actions.setSelectedDrill(DEFAULT_DRILLS[1]);
+      }
     }
   }, [user?.profile?.ageGroup]);
 
-  const isPlaying =
-    state.gameState === GameState.RUNNING_TARGET_ACTIVE ||
-    state.gameState === GameState.TARGET_HIT ||
-    state.gameState === GameState.TARGET_MISS_TIMEOUT;
+  // Feedback auditivo acessível nas transições da partida
+  const prevStateRef = useRef<GameState>(state.gameState);
+  useEffect(() => {
+    if (prevStateRef.current !== state.gameState) {
+      if (state.gameState === GameState.TARGET_HIT) {
+        playSound('hit');
+      } else if (state.gameState === GameState.TARGET_MISS_TIMEOUT) {
+        playSound('miss');
+      } else if (state.gameState === GameState.COMPLETED) {
+        playSound('complete');
+      } else if (state.gameState === GameState.COUNTDOWN) {
+        playSound('tick');
+      }
+      prevStateRef.current = state.gameState;
+    }
+  }, [state.gameState, playSound]);
+
+  const totalAttempts =
+    state.metrics.hits + state.metrics.misses + state.metrics.wrongHits;
+  const accuracyPct =
+    totalAttempts > 0
+      ? Math.round((state.metrics.hits / totalAttempts) * 100)
+      : 0;
+
+  const maxWindowRaw = Math.max(
+    ...state.selectedDrill.steps.map((s) => s.durationMs)
+  );
+  const effectiveMaxWindowMs = state.isKidsMode
+    ? Math.round(maxWindowRaw * 1.5)
+    : maxWindowRaw;
+
+  const roleDisplay = !user
+    ? 'VISITANTE'
+    : user.role === 'ADMIN'
+    ? 'ADMIN'
+    : user.role === 'TREINADOR'
+    ? 'COACH'
+    : 'ATHLETE';
+
+  const firstName = user ? user.name.split(' ')[0] : 'Visitante';
+  const userInitials = user ? getInitials(user.name) : 'VI';
+  const hwBadge = hardwareManager.mode === 'WEB_SERIAL' ? 'USB' : 'MOCK';
+
+  const tabs: Array<{
+    key: AppTab;
+    label: string;
+    mobileLabel: string;
+    badge: string;
+    renderIcon: (color: string, size?: number) => React.ReactNode;
+  }> = [
+    {
+      key: 'ARENA',
+      label: '1. Arena & Placar (HUD)',
+      mobileLabel: 'Arena',
+      badge: getShortFsmTag(state.gameState),
+      renderIcon: (color, size = 16) => <TargetIcon size={size} color={color} />,
+    },
+    {
+      key: 'SUMMARY',
+      label: '2. Resumo da Sessão',
+      mobileLabel: 'Resumo',
+      badge: `${accuracyPct}%`,
+      renderIcon: (color, size = 16) => <AwardIcon size={size} color={color} />,
+    },
+    {
+      key: 'HARDWARE',
+      label: '3. Hardware & IoT Serial',
+      mobileLabel: 'IoT',
+      badge: hwBadge,
+      renderIcon: (color, size = 16) => <CpuIcon size={size} color={color} />,
+    },
+    {
+      key: 'MANAGEMENT',
+      label: '4. Gestão de Atletas & Logs',
+      mobileLabel: 'Atletas',
+      badge: String(profilesCount),
+      renderIcon: (color, size = 16) => <UsersIcon size={size} color={color} />,
+    },
+    {
+      key: 'AUTH',
+      label: '5. Login & Segurança JWT',
+      mobileLabel: 'Conta',
+      badge: user ? 'Ativo' : 'Entrar',
+      renderIcon: (color, size = 16) => <LockIcon size={size} color={color} />,
+    },
+  ];
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <StatusBar barStyle="light-content" backgroundColor="#0B0F19" />
-      <ScrollView contentContainerStyle={styles.container}>
-        {/* Top Navbar */}
-        <View style={styles.navBar}>
-          <View style={styles.brandContainer}>
-            <Text style={styles.brandTitle}>SMART TENNIS ARENA</Text>
-            <Text style={styles.brandSubtitle}>Ecossistema Gamificado de Treino (IoT)</Text>
-          </View>
+    <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.bg }]}>
+      <StatusBar barStyle="dark-content" backgroundColor={theme.surface} />
 
-          <View style={styles.navActions}>
-            {/* Botão de Usuário / Autenticação (RF01, RF02, RF17) */}
-            <TouchableOpacity
-              style={[
-                styles.userBadge,
-                user ? styles.userBadgeLoggedIn : styles.userBadgeLoggedOut,
-              ]}
-              onPress={() => {
-                if (user) {
-                  setIsUserModalOpen(true);
-                } else {
-                  setIsAuthModalOpen(true);
-                }
-              }}
-            >
-              <Text style={styles.userBadgeText}>
-                {user
-                  ? `${user.role === 'ADMIN' ? '👑' : user.role === 'TREINADOR' ? '📋' : '🎾'} ${user.name.split(' ')[0]}`
-                  : '🔑 Entrar / Cadastrar'}
-              </Text>
-            </TouchableOpacity>
-
-            {/* Status e Gestão do Hardware IoT (RF05) */}
-            <TouchableOpacity
-              style={[
-                styles.statusBadge,
-                state.isHardwareConnected
-                  ? styles.statusBadgeConnected
-                  : styles.statusBadgeDisconnected,
-              ]}
-              onPress={() => setIsHardwareModalOpen(true)}
-            >
-              <View
-                style={[
-                  styles.statusDot,
-                  state.isHardwareConnected ? styles.dotConnected : styles.dotDisconnected,
-                ]}
-              />
-              <Text style={styles.statusText}>
-                {state.isHardwareConnected
-                  ? state.hardwareDeviceName || 'IoT Conectado'
-                  : '🔌 Conectar IoT (USB/Mock)'}
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        {/* Banner do Praticante Conectado (RF02) */}
-        {user && user.profile && (
-          <View style={styles.playerInfoBanner}>
-            <Text style={styles.playerInfoTitle}>
-              PRATICANTE: <Text style={styles.playerInfoBold}>{user.name}</Text> ({user.profile.ageGroup === 'KIDS' ? '🧒 Kids' : '🎾 Adulto/Pro'} • Nível {user.profile.skillLevel})
-            </Text>
-            {user.profile.trainingGoals && (
-              <Text style={styles.playerInfoGoal}>
-                🎯 Meta: {user.profile.trainingGoals}
-              </Text>
-            )}
-          </View>
-        )}
-
-        {/* Seletor de Modo: Kids Mode vs Pro Mode (RF11) */}
-        <View style={styles.modeSelector}>
-          <TouchableOpacity
-            style={[styles.modeButton, state.isKidsMode && styles.modeButtonKidsActive]}
-            onPress={() => actions.setIsKidsMode(true)}
-          >
-            <Text style={styles.modeButtonText}>🧒 MODO KIDS (Lúdico)</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.modeButton, !state.isKidsMode && styles.modeButtonProActive]}
-            onPress={() => actions.setIsKidsMode(false)}
-          >
-            <Text style={styles.modeButtonText}>🎾 MODO PRO (Métrico)</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Seletor de Treinos (Catálogo Básico) */}
-        <View style={styles.drillSelectorCard}>
-          <Text style={styles.drillSelectorLabel}>TREINO SELECIONADO:</Text>
-          <View style={styles.drillOptions}>
-            {DEFAULT_DRILLS.map((drill) => {
-              const isSelected = state.selectedDrill.id === drill.id;
-              return (
+      {/* TOP HEADER RESPONSIVO (Compacto em Celular, Completo em Web/Tablet) */}
+      <View
+        style={[
+          styles.topHeaderBar,
+          {
+            backgroundColor: theme.surface,
+            borderBottomColor: theme.border,
+            paddingHorizontal: pagePadding,
+            paddingTop: isMobile ? 10 : 14,
+            paddingBottom: isMobile ? 8 : 10,
+          },
+        ]}
+      >
+        <View style={styles.maxWidthWrap}>
+          {isMobile ? (
+            /* HEADER MOBILE COMPACTO (2 linhas enxutas para preservar área útil do jogo) */
+            <View style={{ gap: 8 }}>
+              <View style={styles.mobileHeaderRow1}>
                 <TouchableOpacity
-                  key={drill.id}
-                  style={[styles.drillOptionBtn, isSelected && styles.drillOptionBtnActive]}
-                  onPress={() => actions.setSelectedDrill(drill)}
+                  activeOpacity={0.85}
+                  style={styles.mobileBrandRow}
+                  onPress={() => setActiveTab('ARENA')}
                 >
-                  <Text
+                  <View
                     style={[
-                      styles.drillOptionText,
-                      isSelected && styles.drillOptionTextActive,
+                      styles.brandLogoMobile,
+                      { backgroundColor: theme.primary },
                     ]}
                   >
-                    {drill.title}
+                    <TargetIcon size={18} color="#FFFFFF" strokeWidth={2.2} />
+                  </View>
+                  <View style={{ flexShrink: 1 }}>
+                    <Text
+                      numberOfLines={1}
+                      style={{
+                        color: theme.text,
+                        fontWeight: '800',
+                        fontSize: isSmallPhone ? fs(14) : fs(15),
+                        letterSpacing: -0.3,
+                      }}
+                    >
+                      Smart Tennis Arena
+                    </Text>
+                    <Text
+                      numberOfLines={1}
+                      style={{
+                        color: theme.primaryDark,
+                        fontWeight: '600',
+                        fontSize: fs(10),
+                      }}
+                    >
+                      Acerte o Alvo • IoT
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  accessibilityRole="button"
+                  accessibilityLabel="Acessar perfil e autenticação"
+                  activeOpacity={0.8}
+                  style={[
+                    styles.mobileUserBtn,
+                    {
+                      backgroundColor: theme.surface,
+                      borderColor: theme.primaryBorder,
+                    },
+                  ]}
+                  onPress={() => setActiveTab(user ? 'MANAGEMENT' : 'AUTH')}
+                >
+                  <View
+                    style={[
+                      styles.mobileAvatar,
+                      { backgroundColor: theme.primarySoft },
+                    ]}
+                  >
+                    <Text
+                      style={{
+                        color: theme.primaryDark,
+                        fontWeight: '800',
+                        fontSize: fs(10),
+                      }}
+                    >
+                      {userInitials}
+                    </Text>
+                  </View>
+                  {!isSmallPhone && (
+                    <Text
+                      numberOfLines={1}
+                      style={{
+                        color: theme.text,
+                        fontWeight: '700',
+                        fontSize: fs(11),
+                        maxWidth: 74,
+                      }}
+                    >
+                      {firstName}
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+
+              {/* Sub-barra Mobile: Status IoT + Acessibilidade Compacta */}
+              <View style={styles.mobileHeaderRow2}>
+                <TouchableOpacity
+                  accessibilityRole="button"
+                  activeOpacity={0.8}
+                  style={[
+                    styles.mobileConnChip,
+                    {
+                      backgroundColor: state.isHardwareConnected
+                        ? theme.surfaceMint
+                        : theme.warningSoft,
+                      borderColor: state.isHardwareConnected
+                        ? theme.primaryBorder
+                        : theme.warningBorder,
+                    },
+                  ]}
+                  onPress={() => setActiveTab('HARDWARE')}
+                >
+                  <View
+                    style={[
+                      styles.connDot,
+                      {
+                        backgroundColor: state.isHardwareConnected
+                          ? theme.primary
+                          : theme.warning,
+                      },
+                    ]}
+                  />
+                  <Text
+                    numberOfLines={1}
+                    style={{
+                      color: state.isHardwareConnected
+                        ? theme.primaryDark
+                        : theme.warning,
+                      fontWeight: '700',
+                      fontSize: fs(10),
+                    }}
+                  >
+                    {state.isHardwareConnected
+                      ? state.hardwareDeviceName || 'Simulador'
+                      : 'Conectar IoT'}
                   </Text>
                 </TouchableOpacity>
-              );
-            })}
-          </View>
+
+                <View
+                  style={[
+                    styles.mobileA11yBar,
+                    {
+                      backgroundColor: theme.surfaceMuted,
+                      borderColor: theme.borderNeutral,
+                    },
+                  ]}
+                >
+                  <TouchableOpacity
+                    accessibilityLabel="Alternar alto contraste"
+                    style={[
+                      styles.mobileA11yIconBtn,
+                      highContrast && { backgroundColor: theme.primarySoft },
+                    ]}
+                    onPress={toggleHighContrast}
+                  >
+                    <EyeIcon
+                      size={14}
+                      color={highContrast ? theme.primaryDark : theme.textSecondary}
+                    />
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    accessibilityLabel="Alternar tamanho da fonte"
+                    style={[
+                      styles.mobileA11yIconBtn,
+                      fontStep > 0 && { backgroundColor: theme.primarySoft },
+                    ]}
+                    onPress={cycleFontSize}
+                  >
+                    <Text
+                      style={{
+                        color: fontStep > 0 ? theme.primaryDark : theme.text,
+                        fontWeight: '800',
+                        fontSize: fs(11),
+                      }}
+                    >
+                      A+
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    accessibilityLabel={soundEnabled ? 'Silenciar áudio' : 'Ativar áudio'}
+                    style={[
+                      styles.mobileA11yIconBtn,
+                      soundEnabled && { backgroundColor: theme.surfaceMint },
+                    ]}
+                    onPress={toggleSound}
+                  >
+                    {soundEnabled ? (
+                      <VolumeIcon size={14} color={theme.primaryDark} />
+                    ) : (
+                      <VolumeMuteIcon size={14} color={theme.textMuted} />
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          ) : (
+            /* HEADER WEB & TABLET COMPLETO */
+            <View style={[styles.brandAndControlsRow, !isCompactNav && { marginBottom: 14 }]}>
+              <TouchableOpacity
+                activeOpacity={0.85}
+                style={styles.brandBlock}
+                onPress={() => setActiveTab('ARENA')}
+              >
+                <View
+                  style={[
+                    styles.brandLogoSquare,
+                    { backgroundColor: theme.primary },
+                  ]}
+                >
+                  <TargetIcon size={22} color="#FFFFFF" strokeWidth={2.2} />
+                </View>
+                <View style={{ flexShrink: 1 }}>
+                  <View style={styles.brandTitleRow}>
+                    <Text
+                      style={[
+                        styles.brandTitle,
+                        { color: theme.text, fontSize: fs(18) },
+                      ]}
+                    >
+                      Smart Tennis Arena
+                    </Text>
+                    <View
+                      style={[
+                        styles.brandTagPill,
+                        { backgroundColor: theme.primarySoft },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.brandTagText,
+                          { color: theme.primaryDark, fontSize: fs(11) },
+                        ]}
+                      >
+                        Acerte o Alvo • IoT
+                      </Text>
+                    </View>
+                  </View>
+                  <Text
+                    style={[
+                      styles.brandSubtitle,
+                      { color: theme.textSecondary, fontSize: fs(12) },
+                    ]}
+                  >
+                    Sistema Embarcado de Treinamento Esportivo & Telemetria em Tempo Real
+                  </Text>
+                </View>
+              </TouchableOpacity>
+
+              <View style={styles.headerRightGroup}>
+                <TouchableOpacity
+                  accessibilityRole="button"
+                  accessibilityLabel="Status da conexão de hardware IoT"
+                  activeOpacity={0.8}
+                  style={[
+                    styles.connectionPill,
+                    {
+                      backgroundColor: state.isHardwareConnected
+                        ? theme.surfaceMint
+                        : theme.warningSoft,
+                      borderColor: state.isHardwareConnected
+                        ? theme.primaryBorder
+                        : theme.warningBorder,
+                    },
+                  ]}
+                  onPress={() => setActiveTab('HARDWARE')}
+                >
+                  <View
+                    style={[
+                      styles.connDot,
+                      {
+                        backgroundColor: state.isHardwareConnected
+                          ? theme.primary
+                          : theme.warning,
+                      },
+                    ]}
+                  />
+                  <Text
+                    style={{
+                      color: state.isHardwareConnected
+                        ? theme.primaryDark
+                        : theme.warning,
+                      fontWeight: '700',
+                      fontSize: fs(12),
+                    }}
+                  >
+                    {state.isHardwareConnected
+                      ? `Conectado (${state.hardwareDeviceName || 'Simulador'})`
+                      : 'Desconectado (Conectar)'}
+                  </Text>
+                </TouchableOpacity>
+
+                <View
+                  style={[
+                    styles.a11yGroup,
+                    {
+                      backgroundColor: theme.surfaceMuted,
+                      borderColor: theme.borderNeutral,
+                    },
+                  ]}
+                >
+                  <TouchableOpacity
+                    accessibilityRole="button"
+                    accessibilityLabel="Alternar modo de alto contraste"
+                    style={[
+                      styles.a11yBtn,
+                      highContrast && { backgroundColor: theme.primarySoft },
+                    ]}
+                    onPress={toggleHighContrast}
+                  >
+                    <EyeIcon
+                      size={15}
+                      color={highContrast ? theme.primaryDark : theme.textSecondary}
+                    />
+                    <Text
+                      style={{
+                        color: highContrast ? theme.primaryDark : theme.textSecondary,
+                        fontWeight: '700',
+                        fontSize: fs(12),
+                      }}
+                    >
+                      Contraste
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    accessibilityRole="button"
+                    accessibilityLabel="Aumentar ou alternar tamanho da fonte"
+                    style={[
+                      styles.a11yBtn,
+                      fontStep > 0 && { backgroundColor: theme.primarySoft },
+                    ]}
+                    onPress={cycleFontSize}
+                  >
+                    <Text
+                      style={{
+                        color: fontStep > 0 ? theme.primaryDark : theme.text,
+                        fontWeight: '800',
+                        fontSize: fs(12),
+                      }}
+                    >
+                      A+
+                    </Text>
+                    <Text
+                      style={{
+                        color: fontStep > 0 ? theme.primaryDark : theme.textSecondary,
+                        fontWeight: '700',
+                        fontSize: fs(12),
+                      }}
+                    >
+                      Fonte
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    accessibilityRole="button"
+                    accessibilityLabel={
+                      soundEnabled ? 'Silenciar áudio' : 'Ativar áudio'
+                    }
+                    style={[
+                      styles.soundIconBtn,
+                      {
+                        backgroundColor: soundEnabled
+                          ? theme.surfaceMint
+                          : theme.surface,
+                        borderColor: soundEnabled
+                          ? theme.primaryBorder
+                          : theme.borderNeutral,
+                      },
+                    ]}
+                    onPress={toggleSound}
+                  >
+                    {soundEnabled ? (
+                      <VolumeIcon size={15} color={theme.primaryDark} />
+                    ) : (
+                      <VolumeMuteIcon size={15} color={theme.textMuted} />
+                    )}
+                  </TouchableOpacity>
+                </View>
+
+                <TouchableOpacity
+                  accessibilityRole="button"
+                  accessibilityLabel="Acessar perfil e autenticação"
+                  activeOpacity={0.8}
+                  style={[
+                    styles.userProfileChip,
+                    {
+                      backgroundColor: theme.surface,
+                      borderColor: theme.primaryBorder,
+                    },
+                  ]}
+                  onPress={() => setActiveTab(user ? 'MANAGEMENT' : 'AUTH')}
+                >
+                  <View
+                    style={[
+                      styles.userAvatar,
+                      { backgroundColor: theme.primarySoft },
+                    ]}
+                  >
+                    <Text
+                      style={{
+                        color: theme.primaryDark,
+                        fontWeight: '800',
+                        fontSize: fs(12),
+                      }}
+                    >
+                      {userInitials}
+                    </Text>
+                  </View>
+                  <View>
+                    <Text
+                      style={{
+                        color: theme.text,
+                        fontWeight: '800',
+                        fontSize: fs(12),
+                      }}
+                    >
+                      {firstName}
+                    </Text>
+                    <Text
+                      style={{
+                        color: theme.primary,
+                        fontWeight: '800',
+                        fontSize: fs(10),
+                        letterSpacing: 0.3,
+                      }}
+                    >
+                      {roleDisplay}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+
+          {/* TOP NAVIGATION TABS (Exibida em Páginas Web & Tablets >= 820px) */}
+          {!isCompactNav && (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.tabsScrollContent}
+            >
+              {tabs.map((tab) => {
+                const isActive = activeTab === tab.key;
+                return (
+                  <TouchableOpacity
+                    key={tab.key}
+                    accessibilityRole="tab"
+                    accessibilityState={{ selected: isActive }}
+                    activeOpacity={0.85}
+                    onPress={() => setActiveTab(tab.key)}
+                    style={[
+                      styles.navTabPill,
+                      isActive
+                        ? { backgroundColor: theme.primary }
+                        : { backgroundColor: 'transparent' },
+                    ]}
+                  >
+                    {tab.renderIcon(isActive ? '#FFFFFF' : theme.textSecondary, 16)}
+                    <Text
+                      style={[
+                        styles.navTabLabel,
+                        {
+                          color: isActive ? '#FFFFFF' : theme.textSecondary,
+                          fontSize: fs(13),
+                        },
+                      ]}
+                    >
+                      {tab.label}
+                    </Text>
+                    <View
+                      style={[
+                        styles.navTabBadge,
+                        {
+                          backgroundColor: isActive
+                            ? 'rgba(255,255,255,0.22)'
+                            : theme.surfaceMint,
+                        },
+                      ]}
+                    >
+                      <Text
+                        style={{
+                          color: isActive ? '#FFFFFF' : theme.primaryDark,
+                          fontWeight: '800',
+                          fontSize: fs(10),
+                        }}
+                      >
+                        {tab.badge}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          )}
         </View>
+      </View>
 
-        {/* HUD de Pontuação e Métricas em Tempo Real */}
-        <ScoreHUD
-          score={state.score}
-          streak={state.streak}
-          remainingMs={state.stepRemainingMs}
-          totalMs={state.stepTotalMs}
-          currentStep={state.currentStepIndex}
-          totalSteps={state.selectedDrill.steps.length}
-          lastPointsAdded={state.lastPointsAdded}
-          lastHitResult={state.lastHitResult}
-          isKidsMode={state.isKidsMode}
-        />
+      {/* ÁREA DE CONTEÚDO PRINCIPAL */}
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={[
+          styles.mainScrollContainer,
+          {
+            paddingHorizontal: pagePadding,
+            paddingTop: isMobile ? 12 : 20,
+            paddingBottom: isCompactNav ? 28 : 48,
+          },
+        ]}
+      >
+        <View style={styles.maxWidthWrap}>
+          {/* ABA 1: ARENA & PLACAR (HUD) */}
+          {activeTab === 'ARENA' && (
+            <View>
+              <ScoreHUD
+                score={state.score}
+                streak={state.streak}
+                maxStreak={state.maxStreak}
+                currentStep={state.currentStepIndex}
+                totalSteps={state.selectedDrill.steps.length}
+                maxWindowMs={effectiveMaxWindowMs}
+                lastPointsAdded={state.lastPointsAdded}
+                gameState={state.gameState}
+                activeTarget={state.activeTarget}
+                countdownValue={state.countdownValue}
+                metrics={state.metrics}
+                isKidsMode={state.isKidsMode}
+              />
 
-        {/* Banner de Contagem Regressiva Preparatória (3, 2, 1, GO!) */}
-        {state.gameState === GameState.COUNTDOWN && (
-          <View style={styles.countdownBanner}>
-            <Text style={styles.countdownNumber}>{state.countdownValue}</Text>
-            <Text style={styles.countdownLabel}>PREPARE-SE PARA O SAQUE!</Text>
-          </View>
-        )}
+              <View
+                style={[
+                  styles.arenaMainColumns,
+                  !isDesktop && styles.arenaStacked,
+                  { gap: sectionGap },
+                ]}
+              >
+                <View style={isDesktop ? styles.arenaLeftCol : styles.fullCol}>
+                  <TargetBoard
+                    activeTarget={state.activeTarget}
+                    ledCount={state.ledCount}
+                    remainingMs={state.stepRemainingMs}
+                    totalMs={state.stepTotalMs}
+                    lastHitTarget={state.lastHitTarget}
+                    lastHitResult={state.lastHitResult}
+                    isKidsMode={state.isKidsMode}
+                    gameState={state.gameState}
+                    countdownValue={state.countdownValue}
+                    emergencyAlert={state.emergencyAlert}
+                    onToggleMode={actions.setIsKidsMode}
+                    onTargetPress={actions.tapTargetSimulated}
+                    onStartSession={actions.startSession}
+                    onTriggerStop={actions.triggerEmergencyStop}
+                    onResetStop={actions.resetEmergencyStop}
+                    onViewSummary={() => setActiveTab('SUMMARY')}
+                  />
+                </View>
 
-        {/* Painel Interativo de Alvos com Anel de 8 LEDs e Detecção */}
-        <TargetBoard
-          activeTarget={state.activeTarget}
-          ledCount={state.ledCount}
-          lastHitTarget={state.lastHitTarget}
-          lastHitResult={state.lastHitResult}
-          isKidsMode={state.isKidsMode}
-          onTargetPress={(targetId) => {
-            actions.tapTargetSimulated(targetId);
-          }}
-        />
+                <View style={isDesktop ? styles.arenaRightCol : styles.fullCol}>
+                  <DrillCatalogCard
+                    selectedDrill={state.selectedDrill}
+                    isKidsMode={state.isKidsMode}
+                    onSelectDrill={actions.setSelectedDrill}
+                  />
+                </View>
+              </View>
+            </View>
+          )}
 
-        {/* Botão de Ação Primária: Iniciar Treino */}
-        {!isPlaying && state.gameState !== GameState.COUNTDOWN && (
-          <TouchableOpacity
-            style={styles.startSessionButton}
-            onPress={actions.startSession}
-          >
-            <Text style={styles.startSessionText}>▶ INICIAR SESSÃO DE TREINO</Text>
-          </TouchableOpacity>
-        )}
+          {/* ABA 2: RESUMO DA SESSÃO */}
+          {activeTab === 'SUMMARY' && (
+            <SessionSummaryView
+              metrics={state.metrics}
+              zoneAnalytics={state.zoneAnalytics}
+              selectedDrill={state.selectedDrill}
+              athleteName={user ? user.name : 'Praticante Convidado'}
+              athleteRoleLabel={
+                !user
+                  ? 'Visitante'
+                  : user.role === 'ADMIN'
+                  ? 'Admin'
+                  : user.role === 'TREINADOR'
+                  ? 'Treinador'
+                  : 'Atleta'
+              }
+              isKidsMode={state.isKidsMode}
+              hasCompletedSession={state.hasCompletedSession}
+              onStartNewSession={() => {
+                setActiveTab('ARENA');
+                actions.startSession();
+              }}
+            />
+          )}
 
-        {/* Botão Oficial de Parada Segura (RF22) */}
-        <EmergencyStopButton
-          isEngaged={state.gameState === GameState.EMERGENCY_STOP}
-          alertMessage={state.emergencyAlert}
-          onTriggerStop={actions.triggerEmergencyStop}
-          onResetStop={actions.resetEmergencyStop}
-        />
+          {/* ABA 3: HARDWARE & IOT SERIAL */}
+          {activeTab === 'HARDWARE' && <HardwareView />}
 
-        {/* Modal de Resumo Analítico ao Finalizar o Treino (RF12) */}
-        <SessionSummaryModal
-          visible={state.gameState === GameState.COMPLETED}
-          metrics={state.metrics}
-          isKidsMode={state.isKidsMode}
-          onClose={() => actions.resetEmergencyStop()}
-          onRestart={actions.startSession}
-        />
+          {/* ABA 4: GESTÃO DE ATLETAS & LOGS */}
+          {activeTab === 'MANAGEMENT' && (
+            <ManagementView
+              onCountChange={setProfilesCount}
+              onNavigateToArena={() => setActiveTab('ARENA')}
+            />
+          )}
 
-        {/* Modal de Login / Cadastro (RF01, RF02) */}
-        <AuthModal
-          visible={isAuthModalOpen}
-          onClose={() => setIsAuthModalOpen(false)}
-        />
-
-        {/* Modal de Gestão de Usuário e Admin (RF02, RF17, RF23) */}
-        <UserManagementModal
-          visible={isUserModalOpen}
-          onClose={() => setIsUserModalOpen(false)}
-        />
-
-        {/* Modal de Conexão e Diagnóstico de Hardware IoT (RF05) */}
-        <HardwareModal
-          visible={isHardwareModalOpen}
-          onClose={() => setIsHardwareModalOpen(false)}
-        />
+          {/* ABA 5: LOGIN & SEGURANÇA JWT */}
+          {activeTab === 'AUTH' && (
+            <AuthView onAuthSuccess={() => setActiveTab('ARENA')} />
+          )}
+        </View>
       </ScrollView>
+
+      {/* BOTTOM NAVIGATION BAR NATIVA (Exibida em Celulares e Telas < 820px) */}
+      {isCompactNav && (
+        <View
+          style={[
+            styles.bottomNavBar,
+            {
+              backgroundColor: theme.surface,
+              borderTopColor: theme.border,
+            },
+          ]}
+        >
+          {tabs.map((tab) => {
+            const isActive = activeTab === tab.key;
+            const iconColor = isActive ? theme.primaryDark : theme.textMuted;
+
+            return (
+              <TouchableOpacity
+                key={tab.key}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: isActive }}
+                accessibilityLabel={tab.label}
+                activeOpacity={0.78}
+                onPress={() => setActiveTab(tab.key)}
+                style={styles.bottomNavItem}
+              >
+                <View
+                  style={[
+                    styles.bottomNavIconPill,
+                    isActive && { backgroundColor: theme.primarySoft },
+                  ]}
+                >
+                  {tab.renderIcon(iconColor, 18)}
+                </View>
+                <Text
+                  numberOfLines={1}
+                  style={{
+                    color: isActive ? theme.primaryDark : theme.textMuted,
+                    fontWeight: isActive ? '800' : '600',
+                    fontSize: isSmallPhone ? fs(10) : fs(11),
+                  }}
+                >
+                  {tab.mobileLabel}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      )}
     </SafeAreaView>
   );
 }
 
 export default function App() {
   return (
-    <AuthProvider>
-      <MainScreen />
-    </AuthProvider>
+    <AccessibilityProvider>
+      <AuthProvider>
+        <MainWorkspace />
+      </AuthProvider>
+    </AccessibilityProvider>
   );
 }
 
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#0B0F19',
   },
-  container: {
-    padding: 16,
+  topHeaderBar: {
+    borderBottomWidth: 1,
     alignItems: 'center',
-    paddingBottom: 40,
   },
-  navBar: {
+  maxWidthWrap: {
     width: '100%',
+    maxWidth: 1360,
+    alignSelf: 'center',
+  },
+  mobileHeaderRow1: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#1E293B',
+    gap: 8,
+  },
+  mobileBrandRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 9,
+    flex: 1,
+  },
+  brandLogoMobile: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  mobileUserBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  mobileAvatar: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  mobileHeaderRow2: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 8,
+  },
+  mobileConnChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    borderWidth: 1,
+    flexShrink: 1,
+  },
+  mobileA11yBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 3,
+    borderRadius: 999,
+    borderWidth: 1,
+    gap: 4,
+  },
+  mobileA11yIconBtn: {
+    width: 28,
+    height: 26,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  brandAndControlsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 14,
+  },
+  brandBlock: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flexShrink: 1,
+  },
+  brandLogoSquare: {
+    width: 44,
+    height: 44,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  brandTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
     flexWrap: 'wrap',
     gap: 8,
   },
-  brandContainer: {
-    minWidth: 180,
-  },
   brandTitle: {
-    fontSize: 16,
-    fontWeight: '900',
-    color: '#38BDF8',
-    letterSpacing: 1,
+    fontWeight: '800',
+    letterSpacing: -0.4,
+  },
+  brandTagPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderRadius: 999,
+  },
+  brandTagText: {
+    fontWeight: '700',
   },
   brandSubtitle: {
-    fontSize: 10,
-    color: '#64748B',
     marginTop: 2,
   },
-  navActions: {
+  headerRightGroup: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    flexWrap: 'wrap',
+    gap: 10,
   },
-  userBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 20,
-    borderWidth: 1,
-  },
-  userBadgeLoggedIn: {
-    backgroundColor: 'rgba(56, 189, 248, 0.12)',
-    borderColor: '#38BDF8',
-  },
-  userBadgeLoggedOut: {
-    backgroundColor: 'rgba(245, 158, 11, 0.15)',
-    borderColor: '#F59E0B',
-  },
-  userBadgeText: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#FFFFFF',
-  },
-  statusBadge: {
+  connectionPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-    borderRadius: 20,
-    borderWidth: 1,
-  },
-  statusBadgeConnected: {
-    backgroundColor: 'rgba(16, 185, 129, 0.1)',
-    borderColor: '#10B981',
-  },
-  statusBadgeDisconnected: {
-    backgroundColor: 'rgba(239, 68, 68, 0.1)',
-    borderColor: '#EF4444',
-  },
-  statusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginRight: 6,
-  },
-  dotConnected: {
-    backgroundColor: '#10B981',
-  },
-  dotDisconnected: {
-    backgroundColor: '#EF4444',
-  },
-  statusText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#E2E8F0',
-  },
-  playerInfoBanner: {
-    width: '100%',
-    backgroundColor: 'rgba(30, 41, 59, 0.7)',
-    borderColor: '#334155',
-    borderWidth: 1,
-    borderRadius: 10,
+    gap: 7,
+    paddingHorizontal: 13,
     paddingVertical: 8,
-    paddingHorizontal: 12,
-    marginBottom: 10,
+    borderRadius: 999,
+    borderWidth: 1,
   },
-  playerInfoTitle: {
-    fontSize: 11,
-    color: '#94A3B8',
+  connDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
   },
-  playerInfoBold: {
-    color: '#38BDF8',
-    fontWeight: '800',
-  },
-  playerInfoGoal: {
-    fontSize: 10,
-    color: '#F59E0B',
-    marginTop: 2,
-    fontWeight: '600',
-  },
-  modeSelector: {
+  a11yGroup: {
     flexDirection: 'row',
-    width: '100%',
-    gap: 8,
-    marginBottom: 12,
-  },
-  modeButton: {
-    flex: 1,
-    backgroundColor: '#1E293B',
-    paddingVertical: 10,
-    borderRadius: 10,
     alignItems: 'center',
+    padding: 4,
+    borderRadius: 999,
     borderWidth: 1,
-    borderColor: '#334155',
+    gap: 4,
   },
-  modeButtonKidsActive: {
-    backgroundColor: '#D97706',
-    borderColor: '#F59E0B',
-  },
-  modeButtonProActive: {
-    backgroundColor: '#0284C7',
-    borderColor: '#38BDF8',
-  },
-  modeButtonText: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: '#FFFFFF',
-  },
-  drillSelectorCard: {
-    width: '100%',
-    backgroundColor: '#1E293B',
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: '#334155',
-  },
-  drillSelectorLabel: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: '#94A3B8',
-    marginBottom: 8,
-  },
-  drillOptions: {
+  a11yBtn: {
     flexDirection: 'row',
-    gap: 8,
-  },
-  drillOptionBtn: {
-    flex: 1,
-    backgroundColor: '#0F172A',
-    paddingVertical: 8,
+    alignItems: 'center',
+    gap: 5,
     paddingHorizontal: 10,
-    borderRadius: 8,
+    paddingVertical: 5,
+    borderRadius: 999,
+  },
+  soundIconBtn: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
     borderWidth: 1,
-    borderColor: '#334155',
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  drillOptionBtnActive: {
-    borderColor: '#38BDF8',
-    backgroundColor: 'rgba(56, 189, 248, 0.1)',
-  },
-  drillOptionText: {
-    fontSize: 11,
-    color: '#94A3B8',
-    fontWeight: '600',
-    textAlign: 'center',
-  },
-  drillOptionTextActive: {
-    color: '#38BDF8',
-    fontWeight: '800',
-  },
-  countdownBanner: {
-    backgroundColor: 'rgba(56, 189, 248, 0.15)',
-    borderWidth: 2,
-    borderColor: '#38BDF8',
-    borderRadius: 16,
-    padding: 16,
-    width: '100%',
+  userProfileChip: {
+    flexDirection: 'row',
     alignItems: 'center',
-    marginVertical: 10,
-  },
-  countdownNumber: {
-    fontSize: 54,
-    fontWeight: '900',
-    color: '#38BDF8',
-  },
-  countdownLabel: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: '#E0F2FE',
-    letterSpacing: 1,
-  },
-  startSessionButton: {
-    backgroundColor: '#10B981',
-    width: '100%',
-    paddingVertical: 16,
+    gap: 9,
+    paddingVertical: 6,
+    paddingHorizontal: 11,
     borderRadius: 14,
-    alignItems: 'center',
-    marginVertical: 10,
-    shadowColor: '#10B981',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 10,
-    elevation: 6,
+    borderWidth: 1,
   },
-  startSessionText: {
-    color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '900',
-    letterSpacing: 1,
+  userAvatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tabsScrollContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 2,
+  },
+  navTabPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 9,
+    paddingHorizontal: 15,
+    borderRadius: 999,
+  },
+  navTabLabel: {
+    fontWeight: '700',
+  },
+  navTabBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 999,
+  },
+  mainScrollContainer: {
+    flexGrow: 1,
+  },
+  arenaMainColumns: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  arenaStacked: {
+    flexDirection: 'column',
+  },
+  arenaLeftCol: {
+    flex: 6.3,
+  },
+  arenaRightCol: {
+    flex: 3.7,
+  },
+  fullCol: {
+    width: '100%',
+  },
+  bottomNavBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+    borderTopWidth: 1,
+    paddingVertical: 6,
+    paddingHorizontal: 6,
+  },
+  bottomNavItem: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 3,
+    paddingVertical: 2,
+  },
+  bottomNavIconPill: {
+    paddingHorizontal: 14,
+    paddingVertical: 4,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

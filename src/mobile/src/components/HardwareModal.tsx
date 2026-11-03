@@ -1,6 +1,10 @@
+/**
+ * Smart Tennis Arena — Hardware & Porta Serial + Monitor de Protocolo Serial
+ * Responsivo para Smartphone, Tablet & Desktop Web (Sem alterar mecânicas)
+ */
+
 import React, { useState, useEffect, useRef } from 'react';
 import {
-  Modal,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -9,66 +13,63 @@ import {
   TextInput,
   ActivityIndicator,
 } from 'react-native';
-import { hardwareManager, DriverMode } from '../hardware/hardwareManager';
+import {
+  hardwareManager,
+  DriverMode,
+  SerialLogEntry,
+} from '../hardware/hardwareManager';
+import { mockSerialDriver } from '../hardware/mockSerialDriver';
 import { WebSerialDriver } from '../hardware/webSerialDriver';
 import { TargetId } from '../../../packages/shared/src/protocol/serial';
+import { useAccessibility } from '../context/AccessibilityContext';
+import { useResponsive } from './useResponsive';
+import {
+  CpuIcon,
+  WifiIcon,
+  UsbIcon,
+  TerminalIcon,
+  RefreshIcon,
+} from './Icons';
 
-interface HardwareModalProps {
-  visible: boolean;
-  onClose: () => void;
-}
+const THRESHOLD_STEPS = [200, 280, 340, 400, 480, 560, 650, 750];
 
-interface LogEntry {
-  id: string;
-  timestamp: string;
-  direction: 'TX' | 'RX' | 'INFO' | 'ERR';
-  message: string;
-}
+export function HardwareView() {
+  const { theme, fs } = useAccessibility();
+  const { width, isMobile, isSmallPhone, cardPadding, sectionGap } = useResponsive();
+  const isWide = width >= 960;
 
-export function HardwareModal({ visible, onClose }: HardwareModalProps) {
-  const [activeTab, setActiveTab] = useState<DriverMode>(hardwareManager.mode);
+  const [activeMode, setActiveMode] = useState<DriverMode>(hardwareManager.mode);
   const [isConnected, setIsConnected] = useState<boolean>(hardwareManager.isConnected);
-  const [deviceName, setDeviceName] = useState<string | null>(hardwareManager.deviceName);
   const [isConnecting, setIsConnecting] = useState<boolean>(false);
-  const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [logs, setLogs] = useState<SerialLogEntry[]>(hardwareManager.logHistory);
+  const [thresholdMv, setThresholdMv] = useState<number>(
+    mockSerialDriver.thresholdMv || 400
+  );
+  const [baudLabel, setBaudLabel] = useState<'115200 bps (Padrão)' | '57600 bps'>(
+    '115200 bps (Padrão)'
+  );
   const [customCommand, setCustomCommand] = useState<string>('');
   const [pingLatency, setPingLatency] = useState<number | null>(null);
   const pingStartRef = useRef<number>(0);
+
   const isWebSerialSupported = WebSerialDriver.isSupported();
 
   useEffect(() => {
-    // Sincroniza estado inicial
-    setActiveTab(hardwareManager.mode);
+    setActiveMode(hardwareManager.mode);
     setIsConnected(hardwareManager.isConnected);
-    setDeviceName(hardwareManager.deviceName);
+    setLogs([...hardwareManager.logHistory]);
 
-    // Ouve mudanças de conexão
-    const unsubStatus = hardwareManager.addStatusListener((conn, name) => {
+    const unsubStatus = hardwareManager.addStatusListener((conn) => {
       setIsConnected(conn);
-      setDeviceName(name ?? null);
       setIsConnecting(false);
     });
 
-    // Ouve logs seriais em tempo real
     const unsubLogs = hardwareManager.addLogListener((dir, msg) => {
-      const now = new Date();
-      const timeStr = now.toTimeString().split(' ')[0] + '.' + String(now.getMilliseconds()).padStart(3, '0');
-      
-      setLogs((prev) => [
-        ...prev.slice(-99), // Mantém até 100 mensagens
-        {
-          id: Math.random().toString(36).substring(2, 9),
-          timestamp: timeStr,
-          direction: dir,
-          message: msg,
-        },
-      ]);
+      setLogs([...hardwareManager.logHistory]);
 
-      // Se recebeu PONG, calcula latência de ida e volta
-      if (dir === 'RX' && msg.includes('"PONG"')) {
+      if (dir === 'RX' && (msg.includes('PONG') || msg.includes('ACK_PONG'))) {
         if (pingStartRef.current > 0) {
-          const latency = Date.now() - pingStartRef.current;
-          setPingLatency(latency);
+          setPingLatency(Date.now() - pingStartRef.current);
           pingStartRef.current = 0;
         }
       }
@@ -81,13 +82,19 @@ export function HardwareModal({ visible, onClose }: HardwareModalProps) {
   }, []);
 
   const handleSelectMode = async (mode: DriverMode) => {
-    setActiveTab(mode);
+    setActiveMode(mode);
     await hardwareManager.setMode(mode);
+    if (mode === 'MOCK' && !hardwareManager.isConnected) {
+      await hardwareManager.connect();
+    }
   };
 
-  const handleConnect = async () => {
+  const handleReconnect = async () => {
     setIsConnecting(true);
     try {
+      if (hardwareManager.isConnected) {
+        await hardwareManager.disconnect();
+      }
       await hardwareManager.connect();
     } catch (err) {
       console.error(err);
@@ -96,625 +103,867 @@ export function HardwareModal({ visible, onClose }: HardwareModalProps) {
     }
   };
 
-  const handleDisconnect = async () => {
-    setIsConnecting(true);
-    try {
-      await hardwareManager.disconnect();
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setIsConnecting(false);
+  const handleUpdateThreshold = async (newVal: number) => {
+    const clamped = Math.max(150, Math.min(900, newVal));
+    setThresholdMv(clamped);
+    if (hardwareManager.isConnected) {
+      await hardwareManager.send({
+        cmd: 'CALIB',
+        thresh: [clamped, clamped, clamped, clamped, clamped],
+      });
     }
   };
 
-  const handleSendPing = async () => {
+  const handleTestAllSensors = async () => {
+    if (!hardwareManager.isConnected) {
+      await hardwareManager.connect();
+    }
     pingStartRef.current = Date.now();
-    setPingLatency(null);
     await hardwareManager.send({ cmd: 'PING' });
-  };
-
-  const handleSendBuzzerTest = async () => {
-    await hardwareManager.send({ cmd: 'BUZZ', freq: 1600, dur: 180 });
-  };
-
-  const handleSendLedsTest = async () => {
     await hardwareManager.send({ cmd: 'SET_LEDS', tgt: 0, mask: 255 });
-    setTimeout(async () => {
-      await hardwareManager.send({ cmd: 'RESET' });
-    }, 1200);
-  };
-
-  const handleTestTarget = async (tgt: TargetId) => {
-    await hardwareManager.send({ cmd: 'START', tgt, time: 3500 });
-  };
-
-  const handleSendEmergencyStop = async () => {
-    await hardwareManager.send('!EMG');
-  };
-
-  const handleSendReset = async () => {
-    await hardwareManager.send({ cmd: 'RESET' });
+    await hardwareManager.send({ cmd: 'BUZZ', freq: 1400, dur: 120 });
+    setTimeout(() => {
+      hardwareManager.send({ cmd: 'RESET' }).catch(() => {});
+    }, 800);
   };
 
   const handleSendCustom = async () => {
-    const trimmed = customCommand.trim();
-    if (!trimmed) return;
+    const raw = customCommand.trim();
+    if (!raw) return;
+
+    if (!hardwareManager.isConnected) {
+      await hardwareManager.connect();
+    }
+
+    const upper = raw.toUpperCase();
     try {
-      if (trimmed === '!EMG') {
+      if (upper === '!EMG' || upper === 'ESTOP') {
         await hardwareManager.send('!EMG');
+      } else if (upper === 'PING' || upper === 'STATUS') {
+        pingStartRef.current = Date.now();
+        await hardwareManager.send({ cmd: 'PING' });
+      } else if (upper === 'RESET') {
+        await hardwareManager.send({ cmd: 'RESET' });
+      } else if (upper === 'BUZZ') {
+        await hardwareManager.send({ cmd: 'BUZZ', freq: 1500, dur: 160 });
+      } else if (upper.startsWith('CALIB:')) {
+        const val = parseInt(upper.split(':')[1], 10);
+        if (!isNaN(val)) {
+          await handleUpdateThreshold(val);
+        }
+      } else if (upper.startsWith('LED_ON:')) {
+        const tgt = parseInt(upper.split(':')[1], 10) as TargetId | 0;
+        if (tgt >= 0 && tgt <= 5) {
+          await hardwareManager.send({ cmd: 'SET_LEDS', tgt, mask: 255 });
+        }
       } else {
-        const parsed = JSON.parse(trimmed);
+        const parsed = JSON.parse(raw);
         await hardwareManager.send(parsed);
       }
       setCustomCommand('');
-    } catch (e: any) {
-      alert(`JSON inválido: ${e?.message}`);
+    } catch {
+      alert(
+        'Formato inválido. Use atalhos como PING, STATUS, RESET, !EMG, CALIB:420, LED_ON:2 ou JSON {"cmd":"PING"}'
+      );
     }
   };
 
+  const thresholdRatio = Math.max(
+    0.05,
+    Math.min(1, (thresholdMv - 150) / (800 - 150))
+  );
+
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <View style={styles.overlay}>
-        <View style={styles.modalCard}>
-          {/* Header */}
-          <View style={styles.header}>
-            <View>
-              <Text style={styles.title}>GERENCIADOR DE HARDWARE IOT</Text>
-              <Text style={styles.subtitle}>Comunicação Serial UART / USB (115200 bps) & Simulação</Text>
+    <View
+      style={[
+        styles.grid,
+        !isWide && styles.gridStacked,
+        { gap: sectionGap },
+      ]}
+    >
+      {/* COLUNA ESQUERDA: Hardware & Porta Serial */}
+      <View
+        style={[
+          styles.leftCard,
+          !isWide && styles.fullWidth,
+          {
+            backgroundColor: theme.surface,
+            borderColor: theme.border,
+            padding: cardPadding,
+          },
+        ]}
+      >
+        <View style={styles.cardHeaderRow}>
+          <View style={[styles.titleRow, { flex: 1, minWidth: 180 }]}>
+            <View
+              style={[
+                styles.iconSquare,
+                { backgroundColor: theme.surfaceMint, borderColor: theme.primaryBorder },
+              ]}
+            >
+              <CpuIcon size={20} color={theme.primary} />
             </View>
-            <TouchableOpacity style={styles.closeBtn} onPress={onClose}>
-              <Text style={styles.closeBtnText}>✕</Text>
-            </TouchableOpacity>
+            <View style={{ flex: 1 }}>
+              <Text
+                style={[
+                  styles.cardTitle,
+                  { color: theme.text, fontSize: isMobile ? fs(16) : fs(17) },
+                ]}
+              >
+                Hardware & Porta Serial
+              </Text>
+              <Text
+                style={[
+                  styles.cardSubtitle,
+                  { color: theme.textSecondary, fontSize: fs(12) },
+                ]}
+              >
+                Controlador Arduino Uno / ESP32
+              </Text>
+            </View>
           </View>
 
-          {/* Abas de Modo: Arduino Real USB vs Simulador Virtual */}
-          <View style={styles.tabContainer}>
-            <TouchableOpacity
-              style={[styles.tabButton, activeTab === 'WEB_SERIAL' && styles.tabButtonActive]}
-              onPress={() => handleSelectMode('WEB_SERIAL')}
+          <TouchableOpacity
+            accessibilityRole="button"
+            activeOpacity={0.8}
+            style={[
+              styles.reconnectPill,
+              isMobile && { width: '100%', alignItems: 'center' },
+              {
+                backgroundColor: theme.primarySoft,
+                opacity:
+                  activeMode === 'WEB_SERIAL' && !isWebSerialSupported ? 0.5 : 1,
+              },
+            ]}
+            disabled={
+              isConnecting || (activeMode === 'WEB_SERIAL' && !isWebSerialSupported)
+            }
+            onPress={handleReconnect}
+          >
+            {isConnecting ? (
+              <ActivityIndicator size="small" color={theme.primaryDark} />
+            ) : (
+              <Text
+                style={[
+                  styles.reconnectText,
+                  { color: theme.primaryDark, fontSize: fs(12) },
+                ]}
+              >
+                {isConnected ? 'Reconectar Porta' : 'Conectar Porta'}
+              </Text>
+            )}
+          </TouchableOpacity>
+        </View>
+
+        {/* Seletor de Driver */}
+        <Text
+          style={[
+            styles.sectionCap,
+            { color: theme.textSecondary, fontSize: fs(10) },
+          ]}
+        >
+          MODO DE OPERAÇÃO DO DRIVER (&apos;HARDWAREMANAGER.TS&apos;)
+        </Text>
+
+        <View
+          style={[
+            styles.driverRow,
+            isSmallPhone && { flexDirection: 'column' },
+          ]}
+        >
+          <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityState={{ selected: activeMode === 'MOCK' }}
+            activeOpacity={0.85}
+            style={[
+              styles.driverOption,
+              {
+                backgroundColor:
+                  activeMode === 'MOCK' ? theme.surfaceMint : theme.surface,
+                borderColor:
+                  activeMode === 'MOCK' ? theme.primary : theme.borderNeutral,
+                borderWidth: activeMode === 'MOCK' ? 2 : 1,
+                padding: isMobile ? 12 : 15,
+              },
+            ]}
+            onPress={() => handleSelectMode('MOCK')}
+          >
+            <WifiIcon
+              size={18}
+              color={activeMode === 'MOCK' ? theme.primary : theme.textMuted}
+            />
+            <Text
+              style={[
+                styles.driverTitle,
+                { color: theme.text, fontSize: fs(13) },
+              ]}
             >
-              <Text style={[styles.tabText, activeTab === 'WEB_SERIAL' && styles.tabTextActive]}>
-                🔌 Arduino USB (Web Serial Real)
+              Simulador Virtual
+            </Text>
+            <Text
+              style={[
+                styles.driverDesc,
+                { color: theme.textSecondary, fontSize: fs(11) },
+              ]}
+            >
+              Testes sem bancada física
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityState={{ selected: activeMode === 'WEB_SERIAL' }}
+            activeOpacity={0.85}
+            style={[
+              styles.driverOption,
+              {
+                backgroundColor:
+                  activeMode === 'WEB_SERIAL' ? theme.surfaceMint : theme.surface,
+                borderColor:
+                  activeMode === 'WEB_SERIAL' ? theme.primary : theme.borderNeutral,
+                borderWidth: activeMode === 'WEB_SERIAL' ? 2 : 1,
+                padding: isMobile ? 12 : 15,
+              },
+            ]}
+            onPress={() => handleSelectMode('WEB_SERIAL')}
+          >
+            <UsbIcon
+              size={18}
+              color={activeMode === 'WEB_SERIAL' ? theme.primary : theme.textMuted}
+            />
+            <Text
+              style={[
+                styles.driverTitle,
+                { color: theme.text, fontSize: fs(13) },
+              ]}
+            >
+              Web Serial USB
+            </Text>
+            <Text
+              style={[
+                styles.driverDesc,
+                { color: theme.textSecondary, fontSize: fs(11) },
+              ]}
+            >
+              Conexão direta cabo OTG/USB
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {activeMode === 'WEB_SERIAL' && !isWebSerialSupported && (
+          <View
+            style={[
+              styles.browserAlert,
+              { backgroundColor: theme.warningSoft, borderColor: theme.warningBorder },
+            ]}
+          >
+            <Text style={{ color: theme.warning, fontSize: fs(11), fontWeight: '600' }}>
+              Web Serial API requer navegador baseado em Chromium no computador (Chrome, Edge ou Opera).
+            </Text>
+          </View>
+        )}
+
+        {/* Calibração de Sensibilidade Piezoelétrica */}
+        <View
+          style={[
+            styles.calibBox,
+            {
+              backgroundColor: theme.bg,
+              borderColor: theme.primaryBorder,
+              padding: isMobile ? 13 : 16,
+            },
+          ]}
+        >
+          <View style={styles.calibTopRow}>
+            <Text
+              style={[
+                styles.calibTitle,
+                { color: theme.text, fontSize: fs(12) },
+              ]}
+            >
+              Sensibilidade Piezoelétrica (Threshold)
+            </Text>
+            <View
+              style={[
+                styles.mvBadge,
+                { backgroundColor: theme.primarySoft },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.mvBadgeText,
+                  { color: theme.primaryDark, fontSize: fs(11) },
+                ]}
+              >
+                {thresholdMv} mV
+              </Text>
+            </View>
+          </View>
+
+          {/* Barra Slider Interativa */}
+          <View style={styles.sliderControlsRow}>
+            <TouchableOpacity
+              accessibilityLabel="Reduzir limiar piezoelétrico"
+              style={[styles.stepMiniBtn, { borderColor: theme.primaryBorder }]}
+              onPress={() => handleUpdateThreshold(thresholdMv - 40)}
+            >
+              <Text style={{ color: theme.primaryDark, fontWeight: '800', fontSize: 16 }}>
+                −
               </Text>
             </TouchableOpacity>
 
-            <TouchableOpacity
-              style={[styles.tabButton, activeTab === 'MOCK' && styles.tabButtonActive]}
-              onPress={() => handleSelectMode('MOCK')}
-            >
-              <Text style={[styles.tabText, activeTab === 'MOCK' && styles.tabTextActive]}>
-                🧪 Simulador Virtual (Mock)
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* Conteúdo Principal Rolável */}
-          <ScrollView style={styles.scrollContent} contentContainerStyle={{ paddingBottom: 20 }}>
-            {/* Bloco de Conexão */}
-            <View style={styles.cardSection}>
-              <View style={styles.statusRow}>
-                <View style={styles.statusBadge}>
-                  <View
-                    style={[
-                      styles.statusDot,
-                      isConnected ? styles.dotConnected : styles.dotDisconnected,
-                    ]}
+            <View style={styles.sliderTrackWrap}>
+              <View
+                style={[
+                  styles.sliderTrack,
+                  { backgroundColor: theme.borderNeutral },
+                ]}
+              >
+                <View
+                  style={[
+                    styles.sliderFill,
+                    {
+                      width: `${Math.round(thresholdRatio * 100)}%`,
+                      backgroundColor: theme.primary,
+                    },
+                  ]}
+                />
+              </View>
+              <View style={styles.sliderStepsOverlay}>
+                {THRESHOLD_STEPS.map((val) => (
+                  <TouchableOpacity
+                    key={val}
+                    style={styles.stepHitArea}
+                    onPress={() => handleUpdateThreshold(val)}
                   />
-                  <Text style={styles.statusBadgeText}>
-                    {isConnected
-                      ? `Conectado: ${deviceName || 'Dispositivo Serial'}`
-                      : 'Desconectado'}
-                  </Text>
-                </View>
-
-                {activeTab === 'WEB_SERIAL' && !isWebSerialSupported && (
-                  <View style={styles.warningBox}>
-                    <Text style={styles.warningText}>
-                      ⚠️ Web Serial API não suportada neste navegador. Abra o aplicativo no Google Chrome, Microsoft Edge ou Opera.
-                    </Text>
-                  </View>
-                )}
-              </View>
-
-              <View style={styles.connectActions}>
-                {isConnected ? (
-                  <TouchableOpacity
-                    style={styles.disconnectBtn}
-                    onPress={handleDisconnect}
-                    disabled={isConnecting}
-                  >
-                    {isConnecting ? (
-                      <ActivityIndicator size="small" color="#EF4444" />
-                    ) : (
-                      <Text style={styles.disconnectBtnText}>Desconectar Porta USB</Text>
-                    )}
-                  </TouchableOpacity>
-                ) : (
-                  <TouchableOpacity
-                    style={[
-                      styles.connectBtn,
-                      activeTab === 'WEB_SERIAL' && !isWebSerialSupported && styles.btnDisabled,
-                    ]}
-                    onPress={handleConnect}
-                    disabled={isConnecting || (activeTab === 'WEB_SERIAL' && !isWebSerialSupported)}
-                  >
-                    {isConnecting ? (
-                      <ActivityIndicator size="small" color="#0B0F19" />
-                    ) : (
-                      <Text style={styles.connectBtnText}>
-                        {activeTab === 'WEB_SERIAL'
-                          ? '🔌 Selecionar e Conectar Porta COM'
-                          : '⚡ Inicializar Simulador Virtual'}
-                      </Text>
-                    )}
-                  </TouchableOpacity>
-                )}
-              </View>
-            </View>
-
-            {/* Painel de Diagnóstico e Testes Práticos de Bancada */}
-            <View style={styles.cardSection}>
-              <View style={styles.sectionHeader}>
-                <Text style={styles.sectionTitle}>🧪 PAINEL DE TESTES DE HARDWARE EM TEMPO REAL</Text>
-                {pingLatency !== null && (
-                  <Text style={styles.latencyText}>Latência RTT: {pingLatency} ms</Text>
-                )}
-              </View>
-              <Text style={styles.sectionDesc}>
-                Execute testes individuais dos atuadores e sensores conectados ao Arduino Uno:
-              </Text>
-
-              <View style={styles.testButtonsGrid}>
-                <TouchableOpacity
-                  style={[styles.testBtn, !isConnected && styles.btnDisabled]}
-                  onPress={handleSendPing}
-                  disabled={!isConnected}
-                >
-                  <Text style={styles.testBtnText}>📶 Testar PING / PONG</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[styles.testBtn, !isConnected && styles.btnDisabled]}
-                  onPress={handleSendBuzzerTest}
-                  disabled={!isConnected}
-                >
-                  <Text style={styles.testBtnText}>🔊 Testar Buzzer (Beep)</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[styles.testBtn, !isConnected && styles.btnDisabled]}
-                  onPress={handleSendLedsTest}
-                  disabled={!isConnected}
-                >
-                  <Text style={styles.testBtnText}>💡 Testar LEDs (Geral)</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[styles.testBtn, styles.testBtnReset, !isConnected && styles.btnDisabled]}
-                  onPress={handleSendReset}
-                  disabled={!isConnected}
-                >
-                  <Text style={styles.testBtnResetText}>🔄 Resetar Firmware</Text>
-                </TouchableOpacity>
-              </View>
-
-              {/* Teste de Ativação dos 5 Alvos */}
-              <Text style={styles.subSectionTitle}>Testar Alvo Específico (Acende LED e aguarda impacto no Piezo):</Text>
-              <View style={styles.targetTestRow}>
-                {([1, 2, 3, 4, 5] as TargetId[]).map((tgt) => (
-                  <TouchableOpacity
-                    key={tgt}
-                    style={[styles.targetTestBtn, !isConnected && styles.btnDisabled]}
-                    onPress={() => handleTestTarget(tgt)}
-                    disabled={!isConnected}
-                  >
-                    <Text style={styles.targetTestBtnText}>Alvo {tgt}</Text>
-                  </TouchableOpacity>
                 ))}
               </View>
-
-              {/* Botão de Teste de Parada de Emergência */}
-              <TouchableOpacity
-                style={[styles.estopTestBtn, !isConnected && styles.btnDisabled]}
-                onPress={handleSendEmergencyStop}
-                disabled={!isConnected}
-              >
-                <Text style={styles.estopTestBtnText}>🚨 Testar Parada de Segurança (!EMG)</Text>
-              </TouchableOpacity>
             </View>
 
-            {/* Monitor Serial Interativo (Console TX / RX) */}
-            <View style={styles.cardSection}>
-              <View style={styles.sectionHeader}>
-                <Text style={styles.sectionTitle}>📟 MONITOR SERIAL UART (115200 BPS)</Text>
-                <TouchableOpacity onPress={() => setLogs([])}>
-                  <Text style={styles.clearLogsText}>Limpar Console</Text>
-                </TouchableOpacity>
-              </View>
+            <TouchableOpacity
+              accessibilityLabel="Aumentar limiar piezoelétrico"
+              style={[styles.stepMiniBtn, { borderColor: theme.primaryBorder }]}
+              onPress={() => handleUpdateThreshold(thresholdMv + 40)}
+            >
+              <Text style={{ color: theme.primaryDark, fontWeight: '800', fontSize: 16 }}>
+                +
+              </Text>
+            </TouchableOpacity>
+          </View>
 
-              <View style={styles.terminalBox}>
-                <ScrollView style={styles.terminalScroll} nestedScrollEnabled>
-                  {logs.length === 0 ? (
-                    <Text style={styles.logPlaceholder}>Nenhum tráfego serial registrado ainda. Conecte o hardware para iniciar.</Text>
-                  ) : (
-                    logs.map((item) => (
-                      <View key={item.id} style={styles.logRow}>
-                        <Text style={styles.logTime}>{item.timestamp}</Text>
-                        <Text
-                          style={[
-                            styles.logDir,
-                            item.direction === 'TX'
-                              ? styles.dirTx
-                              : item.direction === 'RX'
-                              ? styles.dirRx
-                              : item.direction === 'ERR'
-                              ? styles.dirErr
-                              : styles.dirInfo,
-                          ]}
-                        >
-                          [{item.direction}]
-                        </Text>
-                        <Text style={styles.logMsg}>{item.message}</Text>
-                      </View>
-                    ))
-                  )}
-                </ScrollView>
-              </View>
+          <View style={styles.calibLabelsRow}>
+            <Text style={{ color: theme.textMuted, fontSize: fs(10) }}>
+              Mais Sensível (Leve)
+            </Text>
+            <Text style={{ color: theme.textMuted, fontSize: fs(10) }}>
+              Menos Sensível (Forte)
+            </Text>
+          </View>
+        </View>
 
-              {/* Input para envio de comando serial customizado */}
-              <View style={styles.customCmdRow}>
-                <TextInput
-                  style={styles.customCmdInput}
-                  value={customCommand}
-                  onChangeText={setCustomCommand}
-                  placeholder='Ex: {"cmd":"PING"} ou {"cmd":"START","tgt":1,"time":4000}'
-                  placeholderTextColor="#64748B"
-                  editable={isConnected}
-                />
-                <TouchableOpacity
-                  style={[styles.sendCustomBtn, !isConnected && styles.btnDisabled]}
-                  onPress={handleSendCustom}
-                  disabled={!isConnected}
-                >
-                  <Text style={styles.sendCustomBtnText}>Enviar</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </ScrollView>
+        {/* Baud Rate & Comandos Rápidos */}
+        <View style={styles.baudRow}>
+          <Text
+            style={{
+              color: theme.textSecondary,
+              fontWeight: '700',
+              fontSize: fs(12),
+            }}
+          >
+            Baud Rate:
+          </Text>
+
+          <TouchableOpacity
+            style={[
+              styles.baudPill,
+              {
+                backgroundColor: theme.surface,
+                borderColor: theme.primaryBorder,
+              },
+            ]}
+            onPress={() =>
+              setBaudLabel((prev) =>
+                prev === '115200 bps (Padrão)'
+                  ? '57600 bps'
+                  : '115200 bps (Padrão)'
+              )
+            }
+          >
+            <Text
+              style={{
+                color: theme.text,
+                fontWeight: '700',
+                fontSize: fs(12),
+              }}
+            >
+              {baudLabel} ▾
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Atalhos Rápidos de Bancada */}
+        <View style={styles.quickBenchRow}>
+          <TouchableOpacity
+            style={[
+              styles.benchChip,
+              { backgroundColor: theme.surfaceMuted, borderColor: theme.borderNeutral },
+            ]}
+            onPress={async () => {
+              pingStartRef.current = Date.now();
+              await hardwareManager.send({ cmd: 'PING' });
+            }}
+          >
+            <Text style={{ color: theme.textSecondary, fontWeight: '700', fontSize: fs(11) }}>
+              PING {pingLatency !== null ? `(${pingLatency}ms)` : ''}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[
+              styles.benchChip,
+              { backgroundColor: theme.surfaceMuted, borderColor: theme.borderNeutral },
+            ]}
+            onPress={() => hardwareManager.send({ cmd: 'BUZZ', freq: 1600, dur: 150 })}
+          >
+            <Text style={{ color: theme.textSecondary, fontWeight: '700', fontSize: fs(11) }}>
+              Buzzer
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[
+              styles.benchChip,
+              { backgroundColor: theme.surfaceMuted, borderColor: theme.borderNeutral },
+            ]}
+            onPress={() => hardwareManager.send({ cmd: 'SET_LEDS', tgt: 0, mask: 255 })}
+          >
+            <Text style={{ color: theme.textSecondary, fontWeight: '700', fontSize: fs(11) }}>
+              LEDs ON
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[
+              styles.benchChip,
+              { backgroundColor: theme.surfaceMuted, borderColor: theme.borderNeutral },
+            ]}
+            onPress={() => hardwareManager.send({ cmd: 'RESET' })}
+          >
+            <Text style={{ color: theme.textSecondary, fontWeight: '700', fontSize: fs(11) }}>
+              Reset
+            </Text>
+          </TouchableOpacity>
         </View>
       </View>
-    </Modal>
+
+      {/* COLUNA DIREITA: Monitor de Protocolo Serial */}
+      <View
+        style={[
+          styles.rightCard,
+          !isWide && styles.fullWidth,
+          {
+            backgroundColor: theme.surface,
+            borderColor: theme.border,
+            padding: cardPadding,
+          },
+        ]}
+      >
+        <View style={styles.cardHeaderRow}>
+          <View style={[styles.titleRow, { flex: 1, minWidth: 180 }]}>
+            <TerminalIcon size={20} color={theme.primary} />
+            <Text
+              style={[
+                styles.cardTitle,
+                { color: theme.text, fontSize: isMobile ? fs(15) : fs(17), flexShrink: 1 },
+              ]}
+            >
+              Monitor Serial (`serial.ts`)
+            </Text>
+          </View>
+
+          <View
+            style={[
+              styles.monitorActionsRow,
+              isMobile && { width: '100%', justifyContent: 'space-between' },
+            ]}
+          >
+            {logs.length > 0 && (
+              <TouchableOpacity
+                onPress={() => {
+                  hardwareManager.clearLogHistory();
+                  setLogs([]);
+                }}
+              >
+                <Text
+                  style={{
+                    color: theme.textMuted,
+                    fontSize: fs(11),
+                    fontWeight: '600',
+                  }}
+                >
+                  Limpar
+                </Text>
+              </TouchableOpacity>
+            )}
+
+            <TouchableOpacity
+              accessibilityRole="button"
+              activeOpacity={0.8}
+              style={[
+                styles.testSensorsBtn,
+                {
+                  backgroundColor: theme.surfaceMint,
+                  borderColor: theme.primaryBorder,
+                },
+              ]}
+              onPress={handleTestAllSensors}
+            >
+              <RefreshIcon size={13} color={theme.primaryDark} />
+              <Text
+                style={{
+                  color: theme.primaryDark,
+                  fontWeight: '700',
+                  fontSize: fs(11),
+                }}
+              >
+                Testar Todos os Sensores
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Console Terminal Escuro */}
+        <View
+          style={[
+            styles.terminalWindow,
+            {
+              backgroundColor: theme.terminalBg,
+              height: isMobile ? 220 : 310,
+            },
+          ]}
+        >
+          <ScrollView
+            style={{ flex: 1 }}
+            contentContainerStyle={{ padding: isMobile ? 12 : 16 }}
+            nestedScrollEnabled
+          >
+            {logs.length === 0 ? (
+              <Text
+                style={[
+                  styles.terminalLine,
+                  { color: '#64748B', fontSize: fs(11) },
+                ]}
+              >
+                [AGUARDANDO] Conecte ou envie um frame TX para inspecionar o barramento UART...
+              </Text>
+            ) : (
+              logs.map((item) => (
+                <Text
+                  key={item.id}
+                  style={[
+                    styles.terminalLine,
+                    {
+                      color:
+                        item.direction === 'ERR'
+                          ? '#F87171'
+                          : item.direction === 'TX'
+                          ? '#34D399'
+                          : theme.terminalText,
+                      fontSize: isMobile ? fs(11) : fs(12),
+                    },
+                  ]}
+                >
+                  [{item.timestamp}] {item.direction === 'TX' ? '<CMD_IN> ' : ''}
+                  {item.message}
+                </Text>
+              ))
+            )}
+          </ScrollView>
+        </View>
+
+        {/* Barra de Envio TX */}
+        <View style={[styles.txRow, isSmallPhone && { flexDirection: 'column' }]}>
+          <TextInput
+            style={[
+              styles.txInput,
+              {
+                backgroundColor: theme.surfaceMuted,
+                borderColor: theme.primaryBorder,
+                color: theme.text,
+                fontSize: fs(12),
+              },
+            ]}
+            value={customCommand}
+            onChangeText={setCustomCommand}
+            onSubmitEditing={handleSendCustom}
+            placeholder={
+              isMobile
+                ? 'Frame TX (PING, CALIB:420, !EMG)...'
+                : 'Enviar frame serial (ex: LED_ON:2, CALIB:420, STATUS)...'
+            }
+            placeholderTextColor={theme.textMuted}
+          />
+          <TouchableOpacity
+            accessibilityRole="button"
+            activeOpacity={0.85}
+            style={[
+              styles.txSendBtn,
+              isSmallPhone && { width: '100%' },
+              { backgroundColor: theme.primary },
+            ]}
+            onPress={handleSendCustom}
+          >
+            <Text style={[styles.txSendText, { fontSize: fs(13) }]}>
+              Enviar TX
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    backgroundColor: 'rgba(5, 8, 16, 0.88)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 16,
-  },
-  modalCard: {
-    backgroundColor: '#0F172A',
+  grid: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
     width: '100%',
-    maxWidth: 750,
-    maxHeight: '92%',
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#1E293B',
-    padding: 20,
-    shadowColor: '#000',
-    shadowOpacity: 0.5,
-    shadowRadius: 20,
   },
-  header: {
+  gridStacked: {
+    flexDirection: 'column',
+  },
+  fullWidth: {
+    width: '100%',
+  },
+  leftCard: {
+    flex: 4.5,
+    borderRadius: 20,
+    borderWidth: 1,
+    shadowColor: '#059669',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.04,
+    shadowRadius: 12,
+    elevation: 1,
+  },
+  rightCard: {
+    flex: 5.5,
+    borderRadius: 20,
+    borderWidth: 1,
+    justifyContent: 'space-between',
+    shadowColor: '#059669',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.04,
+    shadowRadius: 12,
+    elevation: 1,
+  },
+  cardHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    borderBottomWidth: 1,
-    borderBottomColor: '#1E293B',
-    paddingBottom: 12,
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 10,
+    marginBottom: 16,
   },
-  title: {
-    fontSize: 16,
-    fontWeight: '900',
-    color: '#38BDF8',
-    letterSpacing: 1,
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
   },
-  subtitle: {
-    fontSize: 11,
-    color: '#94A3B8',
+  monitorActionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  iconSquare: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cardTitle: {
+    fontWeight: '800',
+    letterSpacing: -0.3,
+  },
+  cardSubtitle: {
     marginTop: 2,
   },
-  closeBtn: {
-    padding: 6,
-    borderRadius: 8,
-    backgroundColor: '#1E293B',
+  reconnectPill: {
+    minHeight: 38,
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 999,
   },
-  closeBtnText: {
-    color: '#E2E8F0',
-    fontSize: 14,
-    fontWeight: 'bold',
+  reconnectText: {
+    fontWeight: '800',
   },
-  tabContainer: {
+  sectionCap: {
+    fontWeight: '800',
+    letterSpacing: 0.5,
+    marginBottom: 8,
+  },
+  driverRow: {
     flexDirection: 'row',
-    gap: 8,
-    marginTop: 12,
-    marginBottom: 12,
+    gap: 10,
+    marginBottom: 16,
   },
-  tabButton: {
+  driverOption: {
     flex: 1,
-    paddingVertical: 10,
-    borderRadius: 8,
-    alignItems: 'center',
-    backgroundColor: '#1E293B',
-    borderWidth: 1,
-    borderColor: 'transparent',
+    borderRadius: 14,
+    gap: 4,
   },
-  tabButtonActive: {
-    backgroundColor: 'rgba(56, 189, 248, 0.15)',
-    borderColor: '#38BDF8',
+  driverTitle: {
+    fontWeight: '800',
+    marginTop: 4,
   },
-  tabText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#94A3B8',
+  driverDesc: {
+    lineHeight: 15,
   },
-  tabTextActive: {
-    color: '#38BDF8',
-  },
-  scrollContent: {
-    flex: 1,
-  },
-  cardSection: {
-    backgroundColor: '#131D31',
+  browserAlert: {
+    padding: 10,
     borderRadius: 10,
-    padding: 14,
     borderWidth: 1,
-    borderColor: '#1E293B',
-    marginBottom: 12,
+    marginBottom: 14,
   },
-  statusRow: {
-    marginBottom: 10,
-  },
-  statusBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  statusDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-  },
-  dotConnected: {
-    backgroundColor: '#10B981',
-  },
-  dotDisconnected: {
-    backgroundColor: '#EF4444',
-  },
-  statusBadgeText: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#F8FAFC',
-  },
-  warningBox: {
-    marginTop: 8,
-    backgroundColor: 'rgba(245, 158, 11, 0.12)',
-    padding: 8,
-    borderRadius: 6,
+  calibBox: {
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: 'rgba(245, 158, 11, 0.4)',
+    marginBottom: 16,
   },
-  warningText: {
-    fontSize: 11,
-    color: '#F59E0B',
-    lineHeight: 16,
-  },
-  connectActions: {
-    marginTop: 6,
-  },
-  connectBtn: {
-    backgroundColor: '#38BDF8',
-    paddingVertical: 10,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  connectBtnText: {
-    color: '#0B0F19',
-    fontSize: 13,
-    fontWeight: '800',
-  },
-  disconnectBtn: {
-    backgroundColor: 'rgba(239, 68, 68, 0.15)',
-    borderWidth: 1,
-    borderColor: '#EF4444',
-    paddingVertical: 10,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  disconnectBtnText: {
-    color: '#EF4444',
-    fontSize: 13,
-    fontWeight: '800',
-  },
-  btnDisabled: {
-    opacity: 0.4,
-  },
-  sectionHeader: {
+  calibTopRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 6,
+    gap: 8,
+    marginBottom: 12,
   },
-  sectionTitle: {
-    fontSize: 12,
+  calibTitle: {
     fontWeight: '800',
-    color: '#CBD5E1',
-    letterSpacing: 0.5,
+    flex: 1,
   },
-  sectionDesc: {
-    fontSize: 11,
-    color: '#64748B',
-    marginBottom: 10,
+  mvBadge: {
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 7,
   },
-  latencyText: {
-    fontSize: 11,
-    color: '#10B981',
-    fontWeight: '700',
+  mvBadgeText: {
+    fontWeight: '800',
   },
-  testButtonsGrid: {
+  sliderControlsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 8,
+  },
+  stepMiniBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 9,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFFFFF',
+  },
+  sliderTrackWrap: {
+    flex: 1,
+    height: 28,
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  sliderTrack: {
+    height: 8,
+    borderRadius: 999,
+    overflow: 'hidden',
+  },
+  sliderFill: {
+    height: '100%',
+    borderRadius: 999,
+  },
+  sliderStepsOverlay: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+    flexDirection: 'row',
+  },
+  stepHitArea: {
+    flex: 1,
+  },
+  calibLabelsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  baudRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 10,
+    marginBottom: 14,
+  },
+  baudPill: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  quickBenchRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
-    marginBottom: 12,
   },
-  testBtn: {
-    flex: 1,
-    minWidth: 140,
-    backgroundColor: '#1E293B',
-    paddingVertical: 8,
-    borderRadius: 6,
+  benchChip: {
+    flexGrow: 1,
     alignItems: 'center',
+    paddingHorizontal: 11,
+    paddingVertical: 8,
+    borderRadius: 9,
     borderWidth: 1,
-    borderColor: '#334155',
   },
-  testBtnText: {
-    color: '#E2E8F0',
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  testBtnReset: {
-    borderColor: 'rgba(245, 158, 11, 0.4)',
-    backgroundColor: 'rgba(245, 158, 11, 0.1)',
-  },
-  testBtnResetText: {
-    color: '#F59E0B',
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  subSectionTitle: {
-    fontSize: 11,
-    color: '#94A3B8',
-    marginBottom: 6,
-    fontWeight: '600',
-  },
-  targetTestRow: {
+  testSensorsBtn: {
     flexDirection: 'row',
-    gap: 6,
-    marginBottom: 10,
-  },
-  targetTestBtn: {
-    flex: 1,
-    backgroundColor: '#1E293B',
-    paddingVertical: 8,
-    borderRadius: 6,
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#38BDF8',
-  },
-  targetTestBtnText: {
-    color: '#38BDF8',
-    fontSize: 11,
-    fontWeight: '800',
-  },
-  estopTestBtn: {
-    backgroundColor: 'rgba(239, 68, 68, 0.15)',
-    borderWidth: 1,
-    borderColor: '#EF4444',
-    paddingVertical: 8,
-    borderRadius: 6,
-    alignItems: 'center',
-  },
-  estopTestBtnText: {
-    color: '#EF4444',
-    fontSize: 11,
-    fontWeight: '800',
-  },
-  clearLogsText: {
-    color: '#38BDF8',
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  terminalBox: {
-    backgroundColor: '#050810',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#1E293B',
-    height: 150,
-    padding: 8,
-    marginBottom: 10,
-  },
-  terminalScroll: {
-    flex: 1,
-  },
-  logPlaceholder: {
-    color: '#475569',
-    fontSize: 11,
-    fontStyle: 'italic',
-    padding: 4,
-  },
-  logRow: {
-    flexDirection: 'row',
     gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  terminalWindow: {
+    borderRadius: 16,
+    marginBottom: 14,
+    overflow: 'hidden',
+  },
+  terminalLine: {
+    fontFamily: 'monospace',
+    lineHeight: 20,
     marginBottom: 4,
   },
-  logTime: {
-    color: '#475569',
-    fontSize: 10,
-    fontFamily: 'monospace',
-  },
-  logDir: {
-    fontSize: 10,
-    fontFamily: 'monospace',
-    fontWeight: 'bold',
-  },
-  dirTx: {
-    color: '#10B981',
-  },
-  dirRx: {
-    color: '#38BDF8',
-  },
-  dirErr: {
-    color: '#EF4444',
-  },
-  dirInfo: {
-    color: '#F59E0B',
-  },
-  logMsg: {
-    color: '#E2E8F0',
-    fontSize: 10,
-    fontFamily: 'monospace',
-    flex: 1,
-  },
-  customCmdRow: {
+  txRow: {
     flexDirection: 'row',
-    gap: 8,
+    gap: 10,
   },
-  customCmdInput: {
+  txInput: {
     flex: 1,
-    backgroundColor: '#050810',
+    minHeight: 46,
     borderWidth: 1,
-    borderColor: '#1E293B',
-    borderRadius: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    color: '#F8FAFC',
-    fontSize: 11,
-    fontFamily: 'monospace',
+    borderRadius: 12,
+    paddingHorizontal: 13,
+    paddingVertical: 10,
   },
-  sendCustomBtn: {
-    backgroundColor: '#1E293B',
-    borderWidth: 1,
-    borderColor: '#38BDF8',
-    paddingHorizontal: 16,
+  txSendBtn: {
+    minHeight: 46,
+    paddingHorizontal: 18,
+    borderRadius: 12,
+    alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 6,
   },
-  sendCustomBtnText: {
-    color: '#38BDF8',
-    fontSize: 11,
+  txSendText: {
+    color: '#FFFFFF',
     fontWeight: '800',
   },
 });

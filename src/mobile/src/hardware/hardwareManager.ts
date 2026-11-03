@@ -10,11 +10,19 @@ import { webSerialDriver, SerialLogListener } from './webSerialDriver';
 
 export type DriverMode = 'WEB_SERIAL' | 'MOCK';
 
+export interface SerialLogEntry {
+  id: string;
+  timestamp: string;
+  direction: 'TX' | 'RX' | 'INFO' | 'ERR';
+  message: string;
+}
+
 export class HardwareManager implements ISerialDriver {
   private activeMode: DriverMode = 'MOCK';
   private eventListeners: Set<EventListener> = new Set();
   private statusListeners: Set<StatusListener> = new Set();
   private logListeners: Set<SerialLogListener> = new Set();
+  private _logHistory: SerialLogEntry[] = [];
 
   private unsubActiveEvent: (() => void) | null = null;
   private unsubActiveStatus: (() => void) | null = null;
@@ -40,6 +48,14 @@ export class HardwareManager implements ISerialDriver {
     return this.activeMode === 'WEB_SERIAL' ? webSerialDriver : mockSerialDriver;
   }
 
+  public get logHistory(): SerialLogEntry[] {
+    return this._logHistory;
+  }
+
+  public clearLogHistory(): void {
+    this._logHistory = [];
+  }
+
   /**
    * Altera o driver ativo (Arduino Físico vs Mock). Se houver conexão ativa, desconecta antes de trocar.
    */
@@ -55,7 +71,7 @@ export class HardwareManager implements ISerialDriver {
     this.bindDriver(driver);
 
     this.notifyStatus(driver.isConnected, driver.deviceName ?? undefined);
-    this.notifyLog('INFO', `Modo de hardware alterado para: ${newMode === 'WEB_SERIAL' ? 'Arduino Físico (USB)' : 'Simulador Virtual'}`);
+    this.notifyLog('INFO', `Modo de driver alterado -> ${newMode === 'WEB_SERIAL' ? 'Web Serial USB (115200 bps)' : 'Simulador Virtual (Mock)'}`);
   }
 
   private bindDriver(driver: ISerialDriver): void {
@@ -126,6 +142,18 @@ export class HardwareManager implements ISerialDriver {
   }
 
   private notifyLog(direction: 'TX' | 'RX' | 'INFO' | 'ERR', message: string): void {
+    const now = new Date();
+    const timestamp = now.toTimeString().split(' ')[0];
+    this._logHistory = [
+      ...this._logHistory.slice(-119),
+      {
+        id: `${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+        timestamp,
+        direction,
+        message,
+      },
+    ];
+
     this.logListeners.forEach((fn) => {
       try {
         fn(direction, message);

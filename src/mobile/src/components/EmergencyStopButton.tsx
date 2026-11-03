@@ -1,6 +1,6 @@
 /**
- * Smart Tennis Arena — Botão e Modal de Parada Segura (Emergency Stop)
- * Alinhado com: docs/spec/01-system-requirements.md (RF22) e docs/spec/07-security-and-compliance.md
+ * Smart Tennis Arena — Botão e Modal de Parada Segura (Emergency Stop - RF22)
+ * Design Minimalista & Acessível (Branco, Verde & Vermelho Normativo de Segurança)
  */
 
 import React, { useState } from 'react';
@@ -11,10 +11,13 @@ import {
   TouchableOpacity,
   Modal,
 } from 'react-native';
+import { useAccessibility } from '../context/AccessibilityContext';
+import { ShieldAlertIcon, CheckCircleIcon } from './Icons';
 
 interface EmergencyStopButtonProps {
   isEngaged: boolean;
   alertMessage: string | null;
+  fullWidth?: boolean;
   onTriggerStop: () => void;
   onResetStop: () => void;
 }
@@ -22,10 +25,17 @@ interface EmergencyStopButtonProps {
 export const EmergencyStopButton: React.FC<EmergencyStopButtonProps> = ({
   isEngaged,
   alertMessage,
+  fullWidth,
   onTriggerStop,
   onResetStop,
 }) => {
+  const { theme, fs, playSound } = useAccessibility();
   const [confirmStep, setConfirmStep] = useState<number>(1);
+
+  const handleTrigger = () => {
+    playSound('estop');
+    onTriggerStop();
+  };
 
   const handleReset = () => {
     if (confirmStep === 1) {
@@ -39,42 +49,104 @@ export const EmergencyStopButton: React.FC<EmergencyStopButtonProps> = ({
   return (
     <>
       <TouchableOpacity
-        activeOpacity={0.8}
-        style={styles.eStopButton}
-        onPress={onTriggerStop}
+        accessibilityRole="button"
+        accessibilityLabel="Acionar Parada de Emergência RF22"
+        activeOpacity={0.85}
+        style={[
+          styles.eStopButton,
+          fullWidth && { width: '100%' },
+          {
+            backgroundColor: theme.dangerSoft,
+            borderColor: theme.dangerBorder,
+          },
+        ]}
+        onPress={handleTrigger}
       >
-        <Text style={styles.eStopIcon}>🛑</Text>
-        <Text style={styles.eStopText}>PARADA DE EMERGÊNCIA (RF22)</Text>
+        <ShieldAlertIcon size={17} color={theme.danger} />
+        <Text style={[styles.eStopText, { color: theme.danger, fontSize: fs(13) }]}>
+          Parada Segura (!EMG)
+        </Text>
       </TouchableOpacity>
 
       {/* Modal de Bloqueio Persistente Fail-Safe */}
       <Modal visible={isEngaged} transparent animationType="fade">
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalIcon}>⚠️</Text>
-            <Text style={styles.modalTitle}>SISTEMA BLOQUEADO EM ESTADO SEGURO</Text>
-            <Text style={styles.modalDesc}>
-              {alertMessage || 'Todos os 40 LEDs, buzinas e sinal da máquina foram imediatamente cortados.'}
+          <View
+            style={[
+              styles.modalContent,
+              {
+                backgroundColor: theme.surface,
+                borderColor: theme.danger,
+              },
+            ]}
+          >
+            <View
+              style={[
+                styles.iconBadge,
+                { backgroundColor: theme.dangerSoft, borderColor: theme.dangerBorder },
+              ]}
+            >
+              <ShieldAlertIcon size={30} color={theme.danger} />
+            </View>
+
+            <Text style={[styles.modalTitle, { color: theme.danger, fontSize: fs(18) }]}>
+              Parada de Emergência Ativada
+            </Text>
+            <Text
+              style={[
+                styles.modalDesc,
+                { color: theme.textSecondary, fontSize: fs(13) },
+              ]}
+            >
+              {alertMessage ||
+                'Todos os anéis de LED, atuadores sonoros e sinais da sessão foram imediatamente cortados em estado seguro.'}
             </Text>
 
-            <View style={styles.rulesBox}>
-              <Text style={styles.rulesText}>✓ Circuitos de potência desligados</Text>
-              <Text style={styles.rulesText}>✓ Registradores 74HC595 forçados a 0x00</Text>
-              <Text style={styles.rulesText}>✓ Log de auditoria persistido (RF23)</Text>
+            <View
+              style={[
+                styles.rulesBox,
+                {
+                  backgroundColor: theme.surfaceMint,
+                  borderColor: theme.primaryBorder,
+                },
+              ]}
+            >
+              <View style={styles.ruleItem}>
+                <CheckCircleIcon size={15} color={theme.primary} />
+                <Text style={[styles.rulesText, { color: theme.primaryDark, fontSize: fs(12) }]}>
+                  Circuitos de potência e temporizadores desligados
+                </Text>
+              </View>
+              <View style={styles.ruleItem}>
+                <CheckCircleIcon size={15} color={theme.primary} />
+                <Text style={[styles.rulesText, { color: theme.primaryDark, fontSize: fs(12) }]}>
+                  Registradores 74HC595 forçados a 0x00 (Fail-Safe)
+                </Text>
+              </View>
+              <View style={styles.ruleItem}>
+                <CheckCircleIcon size={15} color={theme.primary} />
+                <Text style={[styles.rulesText, { color: theme.primaryDark, fontSize: fs(12) }]}>
+                  Evento prioritário !EMG registrado no protocolo serial
+                </Text>
+              </View>
             </View>
 
             <TouchableOpacity
-              activeOpacity={0.8}
+              accessibilityRole="button"
+              activeOpacity={0.85}
               style={[
                 styles.resetButton,
-                confirmStep === 2 && styles.resetButtonStep2,
+                {
+                  backgroundColor:
+                    confirmStep === 1 ? theme.text : theme.primary,
+                },
               ]}
               onPress={handleReset}
             >
-              <Text style={styles.resetButtonText}>
+              <Text style={[styles.resetButtonText, { fontSize: fs(13) }]}>
                 {confirmStep === 1
-                  ? 'DESTRAMAR SISTEMA (ETAPA 1/2)'
-                  : 'CONFIRMAR REINICIALIZAÇÃO LIMPA (ETAPA 2/2)'}
+                  ? 'Destravar Sistema (Etapa 1 de 2)'
+                  : 'Confirmar Reinicialização Segura (Etapa 2 de 2)'}
               </Text>
             </TouchableOpacity>
           </View>
@@ -86,95 +158,83 @@ export const EmergencyStopButton: React.FC<EmergencyStopButtonProps> = ({
 
 const styles = StyleSheet.create({
   eStopButton: {
-    backgroundColor: '#DC2626',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 20,
+    gap: 8,
+    paddingVertical: 13,
+    paddingHorizontal: 18,
     borderRadius: 12,
-    borderWidth: 2,
-    borderColor: '#EF4444',
-    marginVertical: 10,
-    width: '100%',
-    shadowColor: '#DC2626',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.5,
-    shadowRadius: 8,
-    elevation: 6,
-  },
-  eStopIcon: {
-    fontSize: 20,
-    marginRight: 8,
+    borderWidth: 1.5,
   },
   eStopText: {
-    color: '#FFFFFF',
-    fontWeight: '900',
-    fontSize: 14,
-    letterSpacing: 1,
+    fontWeight: '700',
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.85)',
+    backgroundColor: 'rgba(15, 23, 42, 0.55)',
     justifyContent: 'center',
     alignItems: 'center',
     padding: 20,
   },
   modalContent: {
-    backgroundColor: '#1E293B',
-    borderRadius: 20,
-    padding: 24,
+    borderRadius: 22,
+    padding: 28,
     width: '100%',
-    maxWidth: 400,
+    maxWidth: 440,
     borderWidth: 2,
-    borderColor: '#EF4444',
     alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.15,
+    shadowRadius: 24,
+    elevation: 10,
   },
-  modalIcon: {
-    fontSize: 48,
-    marginBottom: 12,
+  iconBadge: {
+    width: 60,
+    height: 60,
+    borderRadius: 18,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 14,
   },
   modalTitle: {
-    fontSize: 16,
-    fontWeight: '900',
-    color: '#EF4444',
+    fontWeight: '800',
     textAlign: 'center',
     marginBottom: 8,
   },
   modalDesc: {
-    fontSize: 13,
-    color: '#CBD5E1',
     textAlign: 'center',
-    lineHeight: 18,
-    marginBottom: 16,
+    lineHeight: 20,
+    marginBottom: 18,
   },
   rulesBox: {
-    backgroundColor: '#0F172A',
-    padding: 12,
-    borderRadius: 8,
+    padding: 14,
+    borderRadius: 14,
+    borderWidth: 1,
     width: '100%',
     marginBottom: 20,
-    gap: 6,
+    gap: 8,
+  },
+  ruleItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   rulesText: {
-    fontSize: 12,
-    color: '#10B981',
     fontWeight: '600',
+    flex: 1,
   },
   resetButton: {
-    backgroundColor: '#2563EB',
     paddingVertical: 14,
     paddingHorizontal: 20,
-    borderRadius: 10,
+    borderRadius: 12,
     width: '100%',
     alignItems: 'center',
-  },
-  resetButtonStep2: {
-    backgroundColor: '#16A34A',
   },
   resetButtonText: {
     color: '#FFFFFF',
     fontWeight: '800',
-    fontSize: 13,
   },
 });

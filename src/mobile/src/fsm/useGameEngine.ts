@@ -21,6 +21,12 @@ import { ISerialDriver } from '../hardware/serialInterface';
 import { mockSerialDriver } from '../hardware/mockSerialDriver';
 import { hardwareManager } from '../hardware/hardwareManager';
 
+export interface ZoneAnalytics {
+  attempts: Record<TargetId, number>;
+  hits: Record<TargetId, number>;
+  avgReactionMs: Record<TargetId, number>;
+}
+
 export interface GameEngineState {
   gameState: GameState;
   selectedDrill: DrillDefinition;
@@ -38,14 +44,20 @@ export interface GameEngineState {
   lastHitTarget: TargetId | null;
   lastHitResult: 'HIT' | 'WRONG_HIT' | 'MISS' | null;
   metrics: SessionMetrics;
+  zoneAnalytics: ZoneAnalytics;
+  hasCompletedSession: boolean;
   isHardwareConnected: boolean;
   hardwareDeviceName: string | null;
   emergencyAlert: string | null;
 }
 
+const EMPTY_ZONE_MAP = (): Record<TargetId, number> => ({ 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 });
+
 export function useGameEngine(driver: ISerialDriver = hardwareManager) {
-  const [selectedDrill, setSelectedDrill] = useState<DrillDefinition>(DEFAULT_DRILLS[0]);
-  const [isKidsMode, setIsKidsMode] = useState<boolean>(true);
+  const [selectedDrill, setSelectedDrill] = useState<DrillDefinition>(
+    DEFAULT_DRILLS[1] || DEFAULT_DRILLS[0]
+  );
+  const [isKidsMode, setIsKidsMode] = useState<boolean>(false);
   const [gameState, setGameState] = useState<GameState>(GameState.IDLE);
   const [isHardwareConnected, setIsHardwareConnected] = useState<boolean>(driver.isConnected);
   const [hardwareDeviceName, setHardwareDeviceName] = useState<string | null>(driver.deviceName);
@@ -63,6 +75,7 @@ export function useGameEngine(driver: ISerialDriver = hardwareManager) {
   const [lastPointsAdded, setLastPointsAdded] = useState<number>(0);
   const [lastHitTarget, setLastHitTarget] = useState<TargetId | null>(null);
   const [lastHitResult, setLastHitResult] = useState<'HIT' | 'WRONG_HIT' | 'MISS' | null>(null);
+  const [hasCompletedSession, setHasCompletedSession] = useState<boolean>(false);
 
   const [emergencyAlert, setEmergencyAlert] = useState<string | null>(null);
 
@@ -75,7 +88,21 @@ export function useGameEngine(driver: ISerialDriver = hardwareManager) {
     wrongHits: 0,
     reactionTimes: [],
     averageReactionTimeMs: 0,
-    hitsByTarget: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
+    hitsByTarget: EMPTY_ZONE_MAP(),
+  });
+
+  const [zoneAnalytics, setZoneAnalytics] = useState<ZoneAnalytics>({
+    attempts: EMPTY_ZONE_MAP(),
+    hits: EMPTY_ZONE_MAP(),
+    avgReactionMs: EMPTY_ZONE_MAP(),
+  });
+
+  const zoneReactionListRef = useRef<Record<TargetId, number[]>>({
+    1: [],
+    2: [],
+    3: [],
+    4: [],
+    5: [],
   });
 
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -83,8 +110,14 @@ export function useGameEngine(driver: ISerialDriver = hardwareManager) {
   const stepDurationRef = useRef<number>(0);
   const currentStepIndexRef = useRef<number>(0);
 
-  // Mantém referências atualizadas para callbacks assíncronos
   currentStepIndexRef.current = currentStepIndex;
+
+  // Auto-conecta o simulador virtual ao abrir o app para UX imediata
+  useEffect(() => {
+    if (hardwareManager.mode === 'MOCK' && !driver.isConnected) {
+      driver.connect().catch(() => {});
+    }
+  }, [driver]);
 
   // 1. Ouvir status e eventos do hardware
   useEffect(() => {
@@ -106,7 +139,7 @@ export function useGameEngine(driver: ISerialDriver = hardwareManager) {
       unsubStatus();
       unsubEvents();
     };
-  }, [driver, gameState]);
+  }, [driver, gameState, activeTarget, stepRemainingMs, stepTotalMs, streak, isKidsMode, selectedDrill, score, maxStreak]);
 
   // Limpa timers ao desmontar
   useEffect(() => {
@@ -126,29 +159,34 @@ export function useGameEngine(driver: ISerialDriver = hardwareManager) {
   }, [driver]);
 
   // Manipulação dos eventos seriais recebidos do hardware/simulador
-  const handleSerialEvent = useCallback((event: SerialEvent) => {
-    switch (event.evt) {
-      case 'READY':
-        setGameState(GameState.READY);
-        break;
+  const handleSerialEvent = useCallback(
+    (event: SerialEvent) => {
+      switch (event.evt) {
+        case 'READY':
+          setGameState((prev) =>
+            prev === GameState.EMERGENCY_STOP ? prev : GameState.IDLE
+          );
+          break;
 
-      case 'HIT':
-        handleHitEvent(event.tgt, event.val, event.ts);
-        break;
+        case 'HIT':
+          handleHitEvent(event.tgt, event.val, event.ts);
+          break;
 
-      case 'WRONG_HIT':
-        handleWrongHitEvent(event.tgt, event.val);
-        break;
+        case 'WRONG_HIT':
+          handleWrongHitEvent(event.tgt, event.val);
+          break;
 
-      case 'MISS':
-        handleMissEvent(event.tgt);
-        break;
+        case 'MISS':
+          handleMissEvent(event.tgt);
+          break;
 
-      case 'ESTOP_ALERT':
-        handleEmergencyStop(event.src);
-        break;
-    }
-  }, [gameState, activeTarget, stepRemainingMs, stepTotalMs, streak, isKidsMode, selectedDrill]);
+        case 'ESTOP_ALERT':
+          handleEmergencyStop(event.src);
+          break;
+      }
+    },
+    [gameState, activeTarget, stepRemainingMs, stepTotalMs, streak, isKidsMode, selectedDrill, score, maxStreak]
+  );
 
   // Disparo incondicional de Parada Segura (RF22)
   const triggerEmergencyStop = useCallback(async () => {
@@ -166,7 +204,7 @@ export function useGameEngine(driver: ISerialDriver = hardwareManager) {
   const resetEmergencyStop = useCallback(async () => {
     await driver.send({ cmd: 'RESET' });
     setEmergencyAlert(null);
-    setGameState(driver.isConnected ? GameState.READY : GameState.IDLE);
+    setGameState(GameState.IDLE);
   }, [driver]);
 
   // Início da sessão com contagem regressiva 3, 2, 1
@@ -182,6 +220,8 @@ export function useGameEngine(driver: ISerialDriver = hardwareManager) {
     setLastPointsAdded(0);
     setLastHitTarget(null);
     setLastHitResult(null);
+    zoneReactionListRef.current = { 1: [], 2: [], 3: [], 4: [], 5: [] };
+
     setMetrics({
       score: 0,
       streak: 0,
@@ -191,7 +231,13 @@ export function useGameEngine(driver: ISerialDriver = hardwareManager) {
       wrongHits: 0,
       reactionTimes: [],
       averageReactionTimeMs: 0,
-      hitsByTarget: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
+      hitsByTarget: EMPTY_ZONE_MAP(),
+    });
+
+    setZoneAnalytics({
+      attempts: EMPTY_ZONE_MAP(),
+      hits: EMPTY_ZONE_MAP(),
+      avgReactionMs: EMPTY_ZONE_MAP(),
     });
 
     setGameState(GameState.COUNTDOWN);
@@ -205,65 +251,64 @@ export function useGameEngine(driver: ISerialDriver = hardwareManager) {
         clearInterval(countInterval);
         startStep(0);
       }
-    }, 1000);
+    }, 850);
   }, [driver, selectedDrill, isKidsMode]);
 
   // Inicia um step de alvo específico
-  const startStep = useCallback((stepIdx: number) => {
-    if (stepIdx >= selectedDrill.steps.length) {
-      completeSession();
-      return;
-    }
-
-    const step = selectedDrill.steps[stepIdx];
-    // Em Modo Kids, acrescenta tolerância temporal de +50% (RN09)
-    const effectiveDuration = isKidsMode
-      ? Math.round(step.durationMs * 1.5)
-      : step.durationMs;
-
-    setCurrentStepIndex(stepIdx);
-    setActiveTarget(step.targetId);
-    setStepTotalMs(effectiveDuration);
-    setStepRemainingMs(effectiveDuration);
-    setLedCount(8);
-    setGameState(GameState.RUNNING_TARGET_ACTIVE);
-
-    stepStartTimeRef.current = Date.now();
-    stepDurationRef.current = effectiveDuration;
-
-    // Notifica o hardware via comando START
-    driver.send({
-      cmd: 'START',
-      tgt: step.targetId,
-      time: effectiveDuration,
-    });
-
-    // Inicia timer de alta resolução local (atualiza LEDs e HUD a cada 50ms)
-    if (timerRef.current) clearInterval(timerRef.current);
-    timerRef.current = setInterval(() => {
-      const elapsed = Date.now() - stepStartTimeRef.current;
-      const remaining = Math.max(0, effectiveDuration - elapsed);
-
-      setStepRemainingMs(remaining);
-
-      // Decaimento do anel de 8 LEDs (RN04)
-      const fraction = remaining / effectiveDuration;
-      const leds = Math.ceil(fraction * 8);
-      setLedCount(leds);
-
-      if (remaining <= 0) {
-        if (timerRef.current) clearInterval(timerRef.current);
+  const startStep = useCallback(
+    (stepIdx: number) => {
+      if (stepIdx >= selectedDrill.steps.length) {
+        completeSession();
+        return;
       }
-    }, 50);
-  }, [selectedDrill, isKidsMode, driver]);
+
+      const step = selectedDrill.steps[stepIdx];
+      // Em Modo Kids, acrescenta tolerância temporal de +50% (RN09)
+      const effectiveDuration = isKidsMode
+        ? Math.round(step.durationMs * 1.5)
+        : step.durationMs;
+
+      setCurrentStepIndex(stepIdx);
+      setActiveTarget(step.targetId);
+      setStepTotalMs(effectiveDuration);
+      setStepRemainingMs(effectiveDuration);
+      setLedCount(8);
+      setGameState(GameState.RUNNING_TARGET_ACTIVE);
+
+      stepStartTimeRef.current = Date.now();
+      stepDurationRef.current = effectiveDuration;
+
+      driver.send({
+        cmd: 'START',
+        tgt: step.targetId,
+        time: effectiveDuration,
+      });
+
+      if (timerRef.current) clearInterval(timerRef.current);
+      timerRef.current = setInterval(() => {
+        const elapsed = Date.now() - stepStartTimeRef.current;
+        const remaining = Math.max(0, effectiveDuration - elapsed);
+
+        setStepRemainingMs(remaining);
+
+        const fraction = remaining / effectiveDuration;
+        const leds = Math.ceil(fraction * 8);
+        setLedCount(leds);
+
+        if (remaining <= 0) {
+          if (timerRef.current) clearInterval(timerRef.current);
+        }
+      }, 50);
+    },
+    [selectedDrill, isKidsMode, driver]
+  );
 
   // Processa impacto com sucesso
-  const handleHitEvent = (targetId: TargetId, adcFifo: number, timestamp: number) => {
+  const handleHitEvent = (targetId: TargetId, adcFifo: number, _timestamp: number) => {
     if (timerRef.current) clearInterval(timerRef.current);
 
-    const reactionTime = Date.now() - stepStartTimeRef.current;
-    const elapsed = reactionTime;
-    const remaining = Math.max(0, stepDurationRef.current - elapsed);
+    const reactionTime = Math.max(80, Date.now() - stepStartTimeRef.current);
+    const remaining = Math.max(0, stepDurationRef.current - reactionTime);
 
     const scoreResult = calculateHitScore({
       remainingMs: remaining,
@@ -285,6 +330,18 @@ export function useGameEngine(driver: ISerialDriver = hardwareManager) {
     setLastHitTarget(targetId);
     setLastHitResult('HIT');
     setGameState(GameState.TARGET_HIT);
+
+    const zoneReactions = [...(zoneReactionListRef.current[targetId] || []), reactionTime];
+    zoneReactionListRef.current[targetId] = zoneReactions;
+    const zoneAvg = Math.round(
+      zoneReactions.reduce((a, b) => a + b, 0) / zoneReactions.length
+    );
+
+    setZoneAnalytics((prev) => ({
+      attempts: { ...prev.attempts, [targetId]: (prev.attempts[targetId] || 0) + 1 },
+      hits: { ...prev.hits, [targetId]: (prev.hits[targetId] || 0) + 1 },
+      avgReactionMs: { ...prev.avgReactionMs, [targetId]: zoneAvg },
+    }));
 
     setMetrics((prev) => {
       const hits = prev.hits + 1;
@@ -308,10 +365,9 @@ export function useGameEngine(driver: ISerialDriver = hardwareManager) {
       };
     });
 
-    // Aguarda breve intervalo de celebração visual (600ms) e avança
     setTimeout(() => {
       advanceNextStep();
-    }, 600);
+    }, 520);
   };
 
   // Processa impacto em alvo incorreto
@@ -325,14 +381,26 @@ export function useGameEngine(driver: ISerialDriver = hardwareManager) {
       isKidsMode,
     });
 
-    setScore((prev) => Math.max(0, prev + scoreResult.pointsAdded));
+    const updatedScore = Math.max(0, score + scoreResult.pointsAdded);
+    setScore(updatedScore);
     setStreak(0);
     setLastPointsAdded(scoreResult.pointsAdded);
     setLastHitTarget(targetId);
     setLastHitResult('WRONG_HIT');
 
+    if (activeTarget) {
+      setZoneAnalytics((prev) => ({
+        ...prev,
+        attempts: {
+          ...prev.attempts,
+          [activeTarget]: (prev.attempts[activeTarget] || 0) + 1,
+        },
+      }));
+    }
+
     setMetrics((prev) => ({
       ...prev,
+      score: updatedScore,
       wrongHits: prev.wrongHits + 1,
       streak: 0,
     }));
@@ -348,6 +416,11 @@ export function useGameEngine(driver: ISerialDriver = hardwareManager) {
     setLastHitResult('MISS');
     setGameState(GameState.TARGET_MISS_TIMEOUT);
 
+    setZoneAnalytics((prev) => ({
+      ...prev,
+      attempts: { ...prev.attempts, [targetId]: (prev.attempts[targetId] || 0) + 1 },
+    }));
+
     setMetrics((prev) => ({
       ...prev,
       misses: prev.misses + 1,
@@ -356,7 +429,7 @@ export function useGameEngine(driver: ISerialDriver = hardwareManager) {
 
     setTimeout(() => {
       advanceNextStep();
-    }, 700);
+    }, 600);
   };
 
   const advanceNextStep = () => {
@@ -371,11 +444,10 @@ export function useGameEngine(driver: ISerialDriver = hardwareManager) {
   const completeSession = () => {
     if (timerRef.current) clearInterval(timerRef.current);
     setGameState(GameState.COMPLETED);
+    setHasCompletedSession(true);
     setActiveTarget(null);
   };
 
-  // Toque interativo na tela pelo usuário (simula impacto mecânico no sensor piezo)
-  // Só funciona quando o driver ativo é o Mock (simulador virtual)
   const tapTargetSimulated = useCallback((targetId: TargetId) => {
     if (hardwareManager.mode === 'MOCK') {
       mockSerialDriver.simulateHit(targetId);
@@ -400,6 +472,8 @@ export function useGameEngine(driver: ISerialDriver = hardwareManager) {
       lastHitTarget,
       lastHitResult,
       metrics,
+      zoneAnalytics,
+      hasCompletedSession,
       isHardwareConnected,
       hardwareDeviceName,
       emergencyAlert,
