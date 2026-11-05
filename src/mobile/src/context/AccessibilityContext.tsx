@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react';
-import { Platform } from 'react-native';
+import { Platform, Vibration } from 'react-native';
 
 export interface AppTheme {
   bg: string;
@@ -64,7 +64,7 @@ const HIGH_CONTRAST_THEME: AppTheme = {
   textSecondary: '#1E293B',
   textMuted: '#334155',
   danger: '#B91C1C',
-  dangerSoft: '#FEE2E2',
+  dangerSoft: '#FEE2F2',
   dangerBorder: '#B91C1C',
   warning: '#92400E',
   warningSoft: '#FDE68A',
@@ -118,7 +118,28 @@ export function AccessibilityProvider({ children }: { children: ReactNode }) {
 
   const playSound = useCallback(
     (kind: 'hit' | 'miss' | 'tick' | 'estop' | 'complete') => {
-      if (!soundEnabled || Platform.OS !== 'web') return;
+      if (!soundEnabled) return;
+
+      // Feedback tátil nativo em Android/iOS (alternativa multissensorial acessível - Seção 5)
+      if (Platform.OS !== 'web') {
+        try {
+          if (kind === 'hit') {
+            Vibration.vibrate(35);
+          } else if (kind === 'miss') {
+            Vibration.vibrate([0, 45, 40, 45]);
+          } else if (kind === 'tick') {
+            Vibration.vibrate(15);
+          } else if (kind === 'complete') {
+            Vibration.vibrate([0, 40, 50, 70]);
+          } else if (kind === 'estop') {
+            Vibration.vibrate([0, 120, 60, 120]);
+          }
+        } catch {
+          // Ignora dispositivos sem motor háptico
+        }
+        return;
+      }
+
       try {
         const AudioCtx =
           (window as any).AudioContext || (window as any).webkitAudioContext;

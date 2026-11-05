@@ -1,19 +1,34 @@
-# Dockerfile para implantação em Nuvem / Container do Backend
-FROM node:22-alpine
+# Dockerfile multi-estágio para implantação em Nuvem / Container do Backend (Monorepo src/)
+# Contexto de build esperado: pasta `src/` (ex.: `docker build -f backend/Dockerfile src`)
+FROM node:22-alpine AS builder
+
+WORKDIR /workspace
+
+# Instalar dependências completas (incluindo TypeScript para compilação)
+COPY backend/package*.json ./backend/
+RUN cd backend && npm ci
+
+# Copiar código compartilhado e backend para compilação
+COPY packages/shared ./packages/shared
+COPY backend ./backend
+
+RUN cd backend && npm run build
+
+# Estágio enxuto de produção (Princípio do Menor Privilégio - usuário não-root)
+FROM node:22-alpine AS runner
 
 WORKDIR /app
 
-# Copiar arquivos de dependências
-COPY package*.json ./
-RUN npm ci --only=production
+COPY backend/package*.json ./
+RUN npm ci --omit=dev && npm cache clean --force
 
-# Copiar código compilado ou fonte
-COPY . .
-RUN npm run build
+COPY --from=builder /workspace/backend/dist ./dist
+
+USER node
 
 EXPOSE 3001
 
 ENV NODE_ENV=production
 ENV PORT=3001
 
-CMD ["node", "dist/server.js"]
+CMD ["node", "dist/backend/src/server.js"]

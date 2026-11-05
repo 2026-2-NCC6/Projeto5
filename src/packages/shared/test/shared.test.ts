@@ -9,6 +9,20 @@ import {
   parseSerialFrame,
   serializeSerialCommand,
 } from '../src/protocol/serial.ts';
+import {
+  isValidEmail,
+  sanitizeOptionalText,
+  validateRegistrationPayload,
+  applyPrivacyPolicyToUser,
+} from '../src/security/validation.ts';
+import {
+  DEFAULT_DRILLS,
+  DrillCategory,
+  DrillDifficulty,
+  validateDrillDefinition,
+} from '../src/contracts/drills.ts';
+import { computeSessionAnalyticalIndicators } from '../src/contracts/sessions.ts';
+import type { UserWithProfile } from '../src/contracts/user.ts';
 
 test('RN03: Multiplicador de streak cresce até 1.5x aos 5 acertos', () => {
   assert.equal(getStreakMultiplier(0), 1.0);
@@ -25,7 +39,6 @@ test('RN03: Bônus de força ADC varia entre 0 e 20', () => {
 });
 
 test('RN03: Cálculo de pontuação com tempo remanescente e combo', () => {
-  // Acerto no início da janela (100% do tempo) com streak 0 e força média (512)
   const result1 = calculateHitScore({
     remainingMs: 2000,
     totalMs: 2000,
@@ -33,12 +46,10 @@ test('RN03: Cálculo de pontuação com tempo remanescente e combo', () => {
     adcFifoValue: 512,
     isCorrectTarget: true,
   });
-  // P = (100 * (1 + 1) * 1.0) + 10 = 210
   assert.equal(result1.pointsAdded, 210);
   assert.equal(result1.newStreak, 1);
   assert.equal(result1.forceBonus, 10);
 
-  // Acerto no alvo incorreto em Modo Pro: -30 pts e zera streak
   const resultWrongPro = calculateHitScore({
     remainingMs: 1500,
     totalMs: 2000,
@@ -50,7 +61,6 @@ test('RN03: Cálculo de pontuação com tempo remanescente e combo', () => {
   assert.equal(resultWrongPro.pointsAdded, -30);
   assert.equal(resultWrongPro.newStreak, 0);
 
-  // Acerto no alvo incorreto em Modo Kids (RN09): 0 pts e sem penalidade
   const resultWrongKids = calculateHitScore({
     remainingMs: 1500,
     totalMs: 2000,
@@ -141,7 +151,7 @@ test('Parser Serial: descarta frames corrompidos, vazios ou inválidos', () => {
   assert.equal(parseSerialFrame('    \n'), null);
   assert.equal(parseSerialFrame('corrupted_string_without_json'), null);
   assert.equal(parseSerialFrame('{"evt":"UNKNOWN"}'), null);
-  assert.equal(parseSerialFrame('{"evt":"HIT","tgt":99}'), null); // Target fora de 1..5
+  assert.equal(parseSerialFrame('{"evt":"HIT","tgt":99}'), null);
 });
 
 test('Serializador: gera quadros JSON com delimitador newline para todos os comandos', () => {
@@ -165,4 +175,177 @@ test('Serializador: gera quadros JSON com delimitador newline para todos os coma
 
   const emgCmd = serializeSerialCommand('!EMG');
   assert.equal(emgCmd, '!EMG\n');
+});
+
+test('RF01 / OWASP A01: Auto-cadastro bloqueia escalonamento de privilégio para ADMIN e TREINADOR', () => {
+  const playerOk = validateRegistrationPayload({
+    name: 'Atleta Teste',
+    email: 'atleta@smarttennis.com',
+    password: 'password123',
+    role: 'JOGADOR',
+    ageGroup: 'ADULTO',
+    skillLevel: 'INICIANTE',
+  });
+  assert.equal(playerOk.valid, true);
+
+  const adminAttempt = validateRegistrationPayload({
+    name: 'Invasor',
+    email: 'hacker@smarttennis.com',
+    password: 'password123',
+    role: 'ADMIN',
+  });
+  assert.equal(adminAttempt.valid, false);
+  assert.equal(adminAttempt.privilegeEscalationAttempt, true);
+
+  const coachAttempt = validateRegistrationPayload({
+    name: 'Treinador Não Autorizado',
+    email: 'coach2@smarttennis.com',
+    password: 'password123',
+    role: 'TREINADOR',
+  });
+  assert.equal(coachAttempt.valid, false);
+  assert.equal(coachAttempt.privilegeEscalationAttempt, true);
+
+  const adminAuthorized = validateRegistrationPayload(
+    {
+      name: 'Novo Treinador Oficial',
+      email: 'oficial@smarttennis.com',
+      password: 'password123',
+      role: 'TREINADOR',
+    },
+    { allowPrivilegedRoles: true }
+  );
+  assert.equal(adminAuthorized.valid, true);
+});
+
+test('LGPD Art. 14 (Seções 3 e 5): Perfil infantil (KIDS) exige responsável legal e consentimento explícito', () => {
+  const kidsWithoutConsent = validateRegistrationPayload({
+    name: 'Pedro Kids',
+    email: 'pedro@smarttennis.com',
+    password: 'password123',
+    ageGroup: 'KIDS',
+  });
+  assert.equal(kidsWithoutConsent.valid, false);
+
+  const kidsWithoutGuardianName = validateRegistrationPayload({
+    name: 'Pedro Kids',
+    email: 'pedro@smarttennis.com',
+    password: 'password123',
+    ageGroup: 'KIDS',
+    guardianConsent: true,
+    guardianName: '  ',
+  });
+  assert.equal(kidsWithoutGuardianName.valid, false);
+
+  const kidsAuthorized = validateRegistrationPayload({
+    name: 'Pedro Kids',
+    email: 'pedro@smarttennis.com',
+    password: 'password123',
+    ageGroup: 'KIDS',
+    guardianConsent: true,
+    guardianName: 'Mariana Silva (Mãe)',
+  });
+  assert.equal(kidsAuthorized.valid, true);
+});
+
+test('RF02 / OWASP XSS: Higienização de campos opcionais remove scripts e permite limpeza explícita (null)', () => {
+  assert.equal(isValidEmail('valido@dominio.com.br'), true);
+  assert.equal(isValidEmail('email-invalido'), false);
+
+  assert.equal(sanitizeOptionalText(undefined), undefined);
+  assert.equal(sanitizeOptionalText('   '), null);
+  assert.equal(
+    sanitizeOptionalText('Tendinite no ombro <script>alert(1)</script> direito'),
+    'Tendinite no ombro alert(1) direito'
+  );
+});
+
+test('LGPD: Minimização de exposição de dados de menores para não-ADMIN e anonimização em modo demonstração', () => {
+  const minorUser: UserWithProfile = {
+    id: 4,
+    name: 'Theo Carvalho',
+    email: 'kids@smarttennis.com',
+    role: 'JOGADOR',
+    isActive: true,
+    createdAt: '2026-01-01T00:00:00Z',
+    updatedAt: '2026-01-01T00:00:00Z',
+    profile: {
+      id: 4,
+      userId: 4,
+      skillLevel: 'INICIANTE',
+      ageGroup: 'KIDS',
+      preferences: 'Drills curtos',
+      physicalRestrictions: 'Asma leve em esforço intenso',
+      guardianName: 'Mariana Carvalho',
+      guardianConsent: true,
+      telemetryConsent: false,
+      createdAt: '2026-01-01T00:00:00Z',
+      updatedAt: '2026-01-01T00:00:00Z',
+    },
+  };
+
+  const coachView = applyPrivacyPolicyToUser(minorUser, { id: 2, role: 'TREINADOR' });
+  assert.equal(coachView.name, 'Theo C. (Menor Protegido)');
+  assert.equal(coachView.email, 'ki***@smarttennis.com');
+  assert.equal(coachView.profile?.physicalRestrictions, '[Acesso restrito — Proteção LGPD Menores]');
+  assert.equal(coachView.profile?.guardianName, '[Responsável verificado]');
+
+  const adminFullView = applyPrivacyPolicyToUser(minorUser, { id: 1, role: 'ADMIN' }, { anonymizeDemo: false });
+  assert.equal(adminFullView.email, 'kids@smarttennis.com');
+  assert.equal(adminFullView.profile?.physicalRestrictions, 'Asma leve em esforço intenso');
+
+  const demoView = applyPrivacyPolicyToUser(minorUser, { id: 1, role: 'ADMIN' }, { anonymizeDemo: true });
+  assert.equal(demoView.name, 'Theo C. (Menor Protegido)');
+  assert.equal(demoView.email, 'ki***@smarttennis.com');
+  assert.equal(demoView.profile?.physicalRestrictions, '[Oculto no modo demonstração]');
+});
+
+test('RF15 / RF16: Todos os DEFAULT_DRILLS passam na validação formal e limites Spinshot / Kids são impostos', () => {
+  for (const drill of DEFAULT_DRILLS) {
+    const res = validateDrillDefinition(drill);
+    assert.equal(res.valid, true, `Treino ${drill.id} falhou na validação: ${res.errors.join('; ')}`);
+    assert.ok(res.computedDurationSec >= 10);
+  }
+
+  // Bloqueio de velocidade insegura (> 65 km/h) em treino infantil (Modo Kids)
+  const unsafeKids = validateDrillDefinition({
+    title: 'Treino Infantil Inseguro',
+    description: 'Teste de bloqueio de segurança física para crianças.',
+    category: DrillCategory.KIDS_FUN,
+    difficulty: DrillDifficulty.BEGINNER,
+    isKidsAdapted: true,
+    steps: [{ stepNumber: 1, targetId: 1, durationMs: 3000, ballSpeedKmh: 95 }],
+  });
+  assert.equal(unsafeKids.valid, false);
+  assert.ok(unsafeKids.errors.some((e) => e.includes('65 km/h')));
+
+  // Bloqueio de janela fora do intervalo da FSM (< 800ms)
+  const invalidWindow = validateDrillDefinition({
+    title: 'Janela Impossível',
+    description: 'Teste de validação de janela de sensor IoT.',
+    category: DrillCategory.REACTION,
+    difficulty: DrillDifficulty.PRO,
+    isKidsAdapted: false,
+    steps: [{ stepNumber: 1, targetId: 2, durationMs: 300 }],
+  });
+  assert.equal(invalidWindow.valid, false);
+});
+
+test('RF13 / RF19: Cálculo determinístico de precisão (%) e consistência (desvio-padrão ms)', () => {
+  const ind = computeSessionAnalyticalIndicators({
+    score: 1200,
+    streak: 4,
+    maxStreak: 4,
+    hits: 6,
+    misses: 2,
+    wrongHits: 0,
+    reactionTimes: [1000, 1200, 800, 1000],
+    averageReactionTimeMs: 1000,
+    hitsByTarget: { 1: 2, 2: 1, 3: 1, 4: 1, 5: 1 },
+  });
+
+  assert.equal(ind.totalAttempts, 8);
+  assert.equal(ind.accuracyPct, 75);
+  // Média = 1000; variância = ((0 + 40000 + 40000 + 0) / 4) = 20000; sqrt(20000) ≈ 141ms
+  assert.equal(ind.consistencyMs, 141);
 });

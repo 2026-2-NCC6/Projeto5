@@ -14,6 +14,8 @@ import { ScoreHUD } from './src/components/ScoreHUD';
 import { DrillCatalogCard } from './src/components/DrillCatalogCard';
 import { SessionSummaryView } from './src/components/SessionSummaryModal';
 import { HardwareView } from './src/components/HardwareModal';
+import { SessionPrepModal } from './src/components/SessionPrepModal';
+import { HardwareSensorHUD } from './src/components/HardwareSensorHUD';
 import { ManagementView } from './src/components/UserManagementModal';
 import { AuthView } from './src/components/AuthModal';
 import { useResponsive } from './src/components/useResponsive';
@@ -91,6 +93,7 @@ function MainWorkspace() {
 
   const [activeTab, setActiveTab] = useState<AppTab>('ARENA');
   const [profilesCount, setProfilesCount] = useState<number>(4);
+  const [showPrepModal, setShowPrepModal] = useState<boolean>(false);
 
   // Sincronização automática do perfil do praticante (RF02) com o modo do jogo (RF11)
   useEffect(() => {
@@ -636,6 +639,16 @@ function MainWorkspace() {
                   </View>
                 </TouchableOpacity>
               </View>
+              <SessionPrepModal
+                visible={showPrepModal}
+                drill={state.selectedDrill}
+                isKidsMode={state.isKidsMode}
+                onConfirmStart={() => {
+                  setShowPrepModal(false);
+                  actions.startSession();
+                }}
+                onCancel={() => setShowPrepModal(false)}
+              />
             </View>
           )}
 
@@ -741,6 +754,15 @@ function MainWorkspace() {
                 ]}
               >
                 <View style={isDesktop ? styles.arenaLeftCol : styles.fullCol}>
+                  <HardwareSensorHUD
+                    lastShot={state.lastMachineShot}
+                    isHardwareConnected={state.isHardwareConnected}
+                    hardwareDeviceName={state.hardwareDeviceName}
+                    goalsMet={state.goalsMet}
+                    currentSeries={state.currentSeries}
+                    totalSeries={state.totalSeries}
+                    isKidsMode={state.isKidsMode}
+                  />
                   <TargetBoard
                     activeTarget={state.activeTarget}
                     ledCount={state.ledCount}
@@ -754,7 +776,10 @@ function MainWorkspace() {
                     emergencyAlert={state.emergencyAlert}
                     onToggleMode={actions.setIsKidsMode}
                     onTargetPress={actions.tapTargetSimulated}
-                    onStartSession={actions.startSession}
+                    onStartSession={() => setShowPrepModal(true)}
+                    onPauseSession={actions.pauseSession}
+                    onResumeSession={actions.resumeSession}
+                    onAbortSession={actions.abortSession}
                     onTriggerStop={actions.triggerEmergencyStop}
                     onResetStop={actions.resetEmergencyStop}
                     onViewSummary={() => setActiveTab('SUMMARY')}

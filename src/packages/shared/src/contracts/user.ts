@@ -27,6 +27,9 @@ export interface PlayerProfile {
   trainingGoals?: string | null;
   preferences?: string | null;
   physicalRestrictions?: string | null;
+  guardianName?: string | null;
+  guardianConsent?: boolean;
+  telemetryConsent?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -47,9 +50,27 @@ export interface RegisterDto {
   role?: UserRole;
   skillLevel?: SkillLevel;
   ageGroup?: AgeGroup;
-  trainingGoals?: string;
-  preferences?: string;
-  physicalRestrictions?: string;
+  trainingGoals?: string | null;
+  preferences?: string | null;
+  physicalRestrictions?: string | null;
+  guardianName?: string | null;
+  guardianConsent?: boolean;
+  telemetryConsent?: boolean;
+}
+
+export interface AdminCreateUserDto {
+  name: string;
+  email: string;
+  password?: string;
+  role: UserRole;
+  skillLevel?: SkillLevel;
+  ageGroup?: AgeGroup;
+  trainingGoals?: string | null;
+  preferences?: string | null;
+  physicalRestrictions?: string | null;
+  guardianName?: string | null;
+  guardianConsent?: boolean;
+  telemetryConsent?: boolean;
 }
 
 export interface UpdateUserDto {
@@ -62,9 +83,12 @@ export interface UpdateProfileDto {
   name?: string;
   skillLevel?: SkillLevel;
   ageGroup?: AgeGroup;
-  trainingGoals?: string;
-  preferences?: string;
-  physicalRestrictions?: string;
+  trainingGoals?: string | null;
+  preferences?: string | null;
+  physicalRestrictions?: string | null;
+  guardianName?: string | null;
+  guardianConsent?: boolean;
+  telemetryConsent?: boolean;
 }
 
 export interface AuthResponse {
@@ -77,6 +101,10 @@ export interface AuditLog {
   userId?: number | null;
   userName?: string | null;
   action: string;
+  severity?: 'INFO' | 'WARN' | 'CRITICAL';
+  entityType?: string | null;
+  entityId?: string | null;
+  correlationId?: string | null;
   ipAddress?: string | null;
   details?: string | null;
   createdAt: string;

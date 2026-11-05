@@ -16,6 +16,7 @@ interface AuthContextType {
   login: (credentials: LoginDto) => Promise<AuthResponse>;
   register: (payload: RegisterDto) => Promise<AuthResponse>;
   logout: () => Promise<void>;
+  deleteAccount: () => Promise<void>;
   updateProfile: (data: UpdateProfileDto) => Promise<UserWithProfile>;
   refreshUser: () => Promise<void>;
   clearError: () => void;
@@ -94,6 +95,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const deleteAccount = async (): Promise<void> => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      await api.deleteMyAccount();
+      setToken(null);
+      setUser(null);
+    } catch (err: any) {
+      setError(err.message || 'Falha ao excluir conta');
+      throw err;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const updateProfile = async (data: UpdateProfileDto): Promise<UserWithProfile> => {
     setIsLoading(true);
     setError(null);
@@ -128,6 +144,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         login,
         register,
         logout,
+        deleteAccount,
         updateProfile,
         refreshUser,
         clearError: () => setError(null),

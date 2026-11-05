@@ -1,12 +1,12 @@
 {
   "name": "@smart-tennis-arena/backend",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Backend REST API com MySQL para o Smart Tennis Arena (FECAP 2026)",
-  "main": "dist/server.js",
+  "main": "dist/backend/src/server.js",
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
-    "start": "node dist/server.js",
+    "start": "node dist/backend/src/server.js",
     "db:init": "tsx src/db.ts"
   },
   "dependencies": {

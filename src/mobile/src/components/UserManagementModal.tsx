@@ -1,6 +1,6 @@
 /**
  * Smart Tennis Arena — Gestão de Atletas e Comissões (RBAC - RF17)
- * + Meu Perfil Esportivo (RF02) + Logs de Auditoria & Segurança (RF23)
+ * + Meu Perfil Esportivo Completo (RF02) + Anonimização LGPD + Logs de Auditoria & Segurança (RF23)
  * Responsivo para Smartphone, Tablet & Desktop Web
  */
 
@@ -15,7 +15,7 @@ import {
   Platform,
 } from 'react-native';
 import { useAuth } from '../context/AuthContext';
-import { api, API_BASE_URL } from '../services/api';
+import { api } from '../services/api';
 import { hardwareManager } from '../hardware/hardwareManager';
 import {
   AuditLog,
@@ -24,9 +24,20 @@ import {
   UserRole,
   UserWithProfile,
 } from '../../../packages/shared/src/contracts/user';
+import {
+  anonymizeDisplayName,
+  maskEmailAddress,
+} from '../../../packages/shared/src/security/validation';
 import { useAccessibility } from '../context/AccessibilityContext';
 import { useResponsive } from './useResponsive';
-import { FileTextIcon, TrashIcon, RefreshIcon } from './Icons';
+import {
+  FileTextIcon,
+  TrashIcon,
+  RefreshIcon,
+  EyeIcon,
+  CheckCircleIcon,
+  LockIcon,
+} from './Icons';
 
 interface ManagementViewProps {
   onCountChange?: (count: number) => void;
@@ -39,6 +50,7 @@ const DEMO_FALLBACK_PROFILES: Array<{
   email: string;
   demoPass: string;
   role: UserRole;
+  isMinor?: boolean;
   summary: string;
 }> = [
   {
@@ -71,7 +83,8 @@ const DEMO_FALLBACK_PROFILES: Array<{
     email: 'kids@smarttennis.com',
     demoPass: 'kids123',
     role: 'JOGADOR',
-    summary: 'Modo Kids (Lúdico) • Iniciante • Sem penalidade',
+    isMinor: true,
+    summary: 'Modo Kids (Lúdico) • Proteção LGPD • Sem penalidade',
   },
 ];
 
@@ -89,6 +102,12 @@ function getRoleBadgeLabel(role: UserRole): string {
   return 'ATHLETE';
 }
 
+function getNextRole(role: UserRole): UserRole {
+  if (role === 'JOGADOR') return 'TREINADOR';
+  if (role === 'TREINADOR') return 'ADMIN';
+  return 'JOGADOR';
+}
+
 export function ManagementView({
   onCountChange,
   onNavigateToArena,
@@ -101,19 +120,26 @@ export function ManagementView({
 
   const [usersList, setUsersList] = useState<UserWithProfile[]>([]);
   const [isLoadingUsers, setIsLoadingUsers] = useState(false);
+  const [anonymizeDemo, setAnonymizeDemo] = useState(false);
 
+  // Criação administrativa de usuário (Exclusivo ADMIN - RF01 / RF17)
   const [newName, setNewName] = useState('');
   const [newEmail, setNewEmail] = useState('');
   const [newRole, setNewRole] = useState<UserRole>('JOGADOR');
   const [isAddingUser, setIsAddingUser] = useState(false);
   const [feedbackMsg, setFeedbackMsg] = useState<string | null>(null);
 
+  // Editor completo do próprio perfil esportivo e consentimentos LGPD (RF02)
   const [showProfileEditor, setShowProfileEditor] = useState(false);
   const [profName, setProfName] = useState('');
   const [profSkill, setProfSkill] = useState<SkillLevel>('INICIANTE');
   const [profAge, setProfAge] = useState<AgeGroup>('ADULTO');
   const [profGoals, setProfGoals] = useState('');
+  const [profPrefs, setProfPrefs] = useState('');
   const [profRestr, setProfRestr] = useState('');
+  const [profGuardian, setProfGuardian] = useState('');
+  const [profGuardianConsent, setProfGuardianConsent] = useState(false);
+  const [profTelemetryConsent, setProfTelemetryConsent] = useState(true);
   const [isSavingProf, setIsSavingProf] = useState(false);
 
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
@@ -128,7 +154,15 @@ export function ManagementView({
       setProfSkill(user.profile?.skillLevel || 'INICIANTE');
       setProfAge(user.profile?.ageGroup || 'ADULTO');
       setProfGoals(user.profile?.trainingGoals || '');
+      setProfPrefs(user.profile?.preferences || '');
       setProfRestr(user.profile?.physicalRestrictions || '');
+      setProfGuardian(user.profile?.guardianName || '');
+      setProfGuardianConsent(Boolean(user.profile?.guardianConsent));
+      setProfTelemetryConsent(
+        user.profile?.telemetryConsent !== undefined
+          ? Boolean(user.profile.telemetryConsent)
+          : user.profile?.ageGroup !== 'KIDS'
+      );
     }
   }, [user]);
 
@@ -136,7 +170,7 @@ export function ManagementView({
     if (!isCoachOrAdmin) return;
     setIsLoadingUsers(true);
     try {
-      const list = await api.listUsers();
+      const list = await api.listUsers(undefined, undefined, anonymizeDemo);
       setUsersList(list);
       onCountChange?.(list.length);
     } catch (err) {
@@ -144,7 +178,7 @@ export function ManagementView({
     } finally {
       setIsLoadingUsers(false);
     }
-  }, [isCoachOrAdmin, onCountChange]);
+  }, [isCoachOrAdmin, anonymizeDemo, onCountChange]);
 
   const loadAudit = useCallback(async () => {
     if (!isAdmin) return;
@@ -171,13 +205,15 @@ export function ManagementView({
   }, [isCoachOrAdmin, isAdmin, loadUsers, loadAudit, onCountChange]);
 
   const cycleNewRole = () => {
-    setNewRole((prev) =>
-      prev === 'JOGADOR' ? 'TREINADOR' : prev === 'TREINADOR' ? 'ADMIN' : 'JOGADOR'
-    );
+    setNewRole((prev) => getNextRole(prev));
   };
 
   const handleQuickAddUser = async () => {
     setFeedbackMsg(null);
+    if (!isAdmin) {
+      setFeedbackMsg('⚠ Apenas Administradores podem cadastrar contas diretamente.');
+      return;
+    }
     if (!newName.trim() || !newEmail.trim()) {
       setFeedbackMsg('Preencha nome completo e e-mail institucional.');
       return;
@@ -185,36 +221,38 @@ export function ManagementView({
 
     setIsAddingUser(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/auth/register`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: newName.trim(),
-          email: newEmail.trim().toLowerCase(),
-          password: 'arena123',
-          role: newRole,
-          ageGroup: 'ADULTO',
-          skillLevel: 'INTERMEDIARIO',
-        }),
+      await api.createUserByAdmin({
+        name: newName.trim(),
+        email: newEmail.trim().toLowerCase(),
+        role: newRole,
+        ageGroup: 'ADULTO',
+        skillLevel: 'INTERMEDIARIO',
       });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(data.error || 'Erro ao adicionar perfil');
-      }
 
       setNewName('');
       setNewEmail('');
-      setFeedbackMsg('✓ Novo perfil cadastrado no MySQL (senha padrão: arena123)');
-      if (isCoachOrAdmin) {
-        await loadUsers();
-      }
-      if (isAdmin) {
-        await loadAudit();
-      }
+      setFeedbackMsg(
+        `✓ Perfil ${getRoleBadgeLabel(newRole)} cadastrado pelo Admin (senha inicial: arena123)`
+      );
+      await loadUsers();
+      await loadAudit();
     } catch (err: any) {
       setFeedbackMsg(`⚠ ${err.message || 'Falha ao cadastrar perfil'}`);
     } finally {
       setIsAddingUser(false);
+    }
+  };
+
+  const handleCycleUserRole = async (u: UserWithProfile) => {
+    if (!isAdmin || user?.id === u.id) return;
+    const nextRole = getNextRole(u.role);
+    try {
+      await api.updateUser(u.id, { role: nextRole });
+      setFeedbackMsg(`✓ Papel de ${u.name} atualizado para ${getRoleBadgeLabel(nextRole)}`);
+      await loadUsers();
+      await loadAudit();
+    } catch (err: any) {
+      setFeedbackMsg(`⚠ ${err.message || 'Falha ao atualizar papel do usuário'}`);
     }
   };
 
@@ -255,19 +293,34 @@ export function ManagementView({
   };
 
   const handleSaveOwnProfile = async () => {
-    setIsSavingProf(true);
     setFeedbackMsg(null);
+    if (profAge === 'KIDS') {
+      if (!profGuardianConsent || profGuardian.trim().length < 3) {
+        setFeedbackMsg(
+          '⚠ Modo Kids exige nome e consentimento explícito do responsável legal (LGPD).'
+        );
+        return;
+      }
+    }
+
+    setIsSavingProf(true);
     try {
       await updateProfile({
-        name: profName,
+        name: profName.trim(),
         skillLevel: profSkill,
         ageGroup: profAge,
-        trainingGoals: profGoals,
-        physicalRestrictions: profRestr,
+        // Envia null quando limpo para atualizar de fato no MySQL (correção RF02)
+        trainingGoals: profGoals.trim() || null,
+        preferences: profPrefs.trim() || null,
+        physicalRestrictions: profRestr.trim() || null,
+        guardianName: profAge === 'KIDS' ? profGuardian.trim() : null,
+        guardianConsent: profAge === 'KIDS' ? profGuardianConsent : false,
+        telemetryConsent: profTelemetryConsent,
       });
-      setFeedbackMsg('✓ Preferências esportivas (RF02) salvas no MySQL!');
+      setFeedbackMsg('✓ Perfil esportivo e preferências LGPD (RF02) salvos no MySQL!');
       setShowProfileEditor(false);
       if (isCoachOrAdmin) loadUsers();
+      if (isAdmin) loadAudit();
     } catch (err: any) {
       setFeedbackMsg(`⚠ ${err.message || 'Erro ao salvar perfil'}`);
     } finally {
@@ -316,7 +369,7 @@ export function ManagementView({
                 { color: theme.textSecondary, fontSize: fs(12) },
               ]}
             >
-              Controle de acesso por perfil e métricas acumuladas
+              Controle de acesso por perfil, personalização RF02 e proteção LGPD
             </Text>
           </View>
 
@@ -326,6 +379,41 @@ export function ManagementView({
               isMobile && { width: '100%', justifyContent: 'space-between' },
             ]}
           >
+            {/* Modo de Anonimização para Demonstrações Públicas (Seção 5 - LGPD) */}
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel="Alternar anonimização LGPD para demonstrações"
+              style={[
+                styles.editOwnBtn,
+                {
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 5,
+                  backgroundColor: anonymizeDemo
+                    ? theme.primarySoft
+                    : theme.surfaceMuted,
+                  borderColor: anonymizeDemo
+                    ? theme.primary
+                    : theme.borderNeutral,
+                },
+              ]}
+              onPress={() => setAnonymizeDemo((v) => !v)}
+            >
+              <EyeIcon
+                size={13}
+                color={anonymizeDemo ? theme.primaryDark : theme.textSecondary}
+              />
+              <Text
+                style={{
+                  color: anonymizeDemo ? theme.primaryDark : theme.textSecondary,
+                  fontWeight: '700',
+                  fontSize: fs(11),
+                }}
+              >
+                {anonymizeDemo ? 'LGPD Anônimo' : 'Anonimizar'}
+              </Text>
+            </TouchableOpacity>
+
             {user && (
               <TouchableOpacity
                 style={[
@@ -383,7 +471,7 @@ export function ManagementView({
           </View>
         )}
 
-        {/* Painel Expansível: Editar Meu Perfil do Praticante (RF02) */}
+        {/* Painel Expansível: Editar Meu Perfil do Praticante Completo (RF02 + LGPD) */}
         {user && showProfileEditor && (
           <View
             style={[
@@ -392,7 +480,7 @@ export function ManagementView({
             ]}
           >
             <Text style={{ color: theme.primaryDark, fontWeight: '800', fontSize: fs(13), marginBottom: 10 }}>
-              Personalização Esportiva do Praticante Conectado (RF02)
+              Personalização Esportiva & Privacidade do Praticante (RF02)
             </Text>
 
             <View style={[styles.quickFormRow, isMobile && { flexDirection: 'column', alignItems: 'stretch' }]}>
@@ -415,10 +503,75 @@ export function ManagementView({
                 ]}
                 value={profGoals}
                 onChangeText={setProfGoals}
-                placeholder="Meta de treino (ex: Reflexo de rede)"
+                placeholder="Objetivos (ex: Precisão de forehand)"
                 placeholderTextColor={theme.textMuted}
               />
             </View>
+
+            <View style={[styles.quickFormRow, { marginTop: 8 }, isMobile && { flexDirection: 'column', alignItems: 'stretch' }]}>
+              <TextInput
+                style={[
+                  styles.formInput,
+                  isMobile && { width: '100%' },
+                  { backgroundColor: theme.surface, borderColor: theme.borderNeutral, color: theme.text, fontSize: fs(13) },
+                ]}
+                value={profPrefs}
+                onChangeText={setProfPrefs}
+                placeholder="Preferências (ex: Séries rápidas, estímulo visual)"
+                placeholderTextColor={theme.textMuted}
+              />
+              <TextInput
+                style={[
+                  styles.formInput,
+                  isMobile && { width: '100%' },
+                  { backgroundColor: theme.surface, borderColor: theme.borderNeutral, color: theme.text, fontSize: fs(13) },
+                ]}
+                value={profRestr}
+                onChangeText={setProfRestr}
+                placeholder="Restrições físicas / observações (opcional)"
+                placeholderTextColor={theme.textMuted}
+              />
+            </View>
+
+            {profAge === 'KIDS' && (
+              <View style={[styles.quickFormRow, { marginTop: 8 }, isMobile && { flexDirection: 'column', alignItems: 'stretch' }]}>
+                <TextInput
+                  style={[
+                    styles.formInput,
+                    isMobile && { width: '100%' },
+                    { backgroundColor: theme.surface, borderColor: theme.primaryBorder, color: theme.text, fontSize: fs(13) },
+                  ]}
+                  value={profGuardian}
+                  onChangeText={setProfGuardian}
+                  placeholder="Nome do Responsável Legal (obrigatório Modo Kids)"
+                  placeholderTextColor={theme.textMuted}
+                />
+                <TouchableOpacity
+                  style={[
+                    styles.chipToggle,
+                    {
+                      flexDirection: 'row',
+                      justifyContent: 'center',
+                      gap: 6,
+                      backgroundColor: profGuardianConsent ? theme.primarySoft : theme.surface,
+                      borderColor: profGuardianConsent ? theme.primary : theme.borderNeutral,
+                    },
+                  ]}
+                  onPress={() => setProfGuardianConsent((v) => !v)}
+                >
+                  {profGuardianConsent && <CheckCircleIcon size={13} color={theme.primaryDark} />}
+                  <Text
+                    style={{
+                      color: profGuardianConsent ? theme.primaryDark : theme.textSecondary,
+                      fontWeight: '700',
+                      fontSize: fs(11),
+                    }}
+                  >
+                    Consentimento Parental LGPD
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
 
             <View style={[styles.quickFormRow, { marginTop: 8 }]}>
               {(['KIDS', 'ADULTO'] as AgeGroup[]).map((ag) => (
@@ -476,6 +629,33 @@ export function ManagementView({
 
               <TouchableOpacity
                 style={[
+                  styles.chipToggle,
+                  {
+                    backgroundColor: profTelemetryConsent
+                      ? theme.surfaceMint
+                      : theme.surface,
+                    borderColor: profTelemetryConsent
+                      ? theme.primary
+                      : theme.borderNeutral,
+                  },
+                ]}
+                onPress={() => setProfTelemetryConsent((v) => !v)}
+              >
+                <Text
+                  style={{
+                    color: profTelemetryConsent
+                      ? theme.primaryDark
+                      : theme.textSecondary,
+                    fontWeight: '700',
+                    fontSize: fs(11),
+                  }}
+                >
+                  Telemetria: {profTelemetryConsent ? 'ON' : 'OFF'}
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
                   styles.addBtn,
                   isMobile && { width: '100%' },
                   { backgroundColor: theme.primary },
@@ -491,86 +671,100 @@ export function ManagementView({
           </View>
         )}
 
-        {/* Barra Rápida de Adição de Perfil */}
-        <View
-          style={[
-            styles.addBar,
-            isMobile && { flexDirection: 'column', alignItems: 'stretch' },
-            { backgroundColor: theme.bg, borderColor: theme.primaryBorder },
-          ]}
-        >
-          <TextInput
-            style={[
-              styles.formInput,
-              isMobile && { width: '100%', minWidth: 0 },
-              {
-                backgroundColor: theme.surface,
-                borderColor: theme.borderNeutral,
-                color: theme.text,
-                fontSize: fs(12),
-              },
-            ]}
-            value={newName}
-            onChangeText={setNewName}
-            placeholder="Nome completo do atleta/treinador"
-            placeholderTextColor={theme.textMuted}
-          />
-          <TextInput
-            style={[
-              styles.formInput,
-              isMobile && { width: '100%', minWidth: 0 },
-              {
-                backgroundColor: theme.surface,
-                borderColor: theme.borderNeutral,
-                color: theme.text,
-                fontSize: fs(12),
-              },
-            ]}
-            value={newEmail}
-            onChangeText={setNewEmail}
-            autoCapitalize="none"
-            keyboardType="email-address"
-            placeholder="E-mail institucional"
-            placeholderTextColor={theme.textMuted}
-          />
-
+        {/* Barra Rápida de Adição Administrativa (Restrita a ADMIN - RF01 / RF17) */}
+        {isAdmin ? (
           <View
             style={[
-              styles.addBarActionsRow,
-              isMobile && { width: '100%' },
+              styles.addBar,
+              isMobile && { flexDirection: 'column', alignItems: 'stretch' },
+              { backgroundColor: theme.bg, borderColor: theme.primaryBorder },
             ]}
           >
-            <TouchableOpacity
-              accessibilityRole="button"
+            <TextInput
               style={[
-                styles.roleSelectPill,
-                isMobile && { flex: 1, alignItems: 'center' },
-                { backgroundColor: theme.surface, borderColor: theme.borderNeutral },
+                styles.formInput,
+                isMobile && { width: '100%', minWidth: 0 },
+                {
+                  backgroundColor: theme.surface,
+                  borderColor: theme.borderNeutral,
+                  color: theme.text,
+                  fontSize: fs(12),
+                },
               ]}
-              onPress={cycleNewRole}
-            >
-              <Text style={{ color: theme.text, fontWeight: '700', fontSize: fs(11) }}>
-                {getRoleBadgeLabel(newRole)} ▾
-              </Text>
-            </TouchableOpacity>
+              value={newName}
+              onChangeText={setNewName}
+              placeholder="Nome completo do atleta/treinador"
+              placeholderTextColor={theme.textMuted}
+            />
+            <TextInput
+              style={[
+                styles.formInput,
+                isMobile && { width: '100%', minWidth: 0 },
+                {
+                  backgroundColor: theme.surface,
+                  borderColor: theme.borderNeutral,
+                  color: theme.text,
+                  fontSize: fs(12),
+                },
+              ]}
+              value={newEmail}
+              onChangeText={setNewEmail}
+              autoCapitalize="none"
+              keyboardType="email-address"
+              placeholder="E-mail institucional"
+              placeholderTextColor={theme.textMuted}
+            />
 
-            <TouchableOpacity
-              accessibilityRole="button"
-              activeOpacity={0.85}
+            <View
               style={[
-                styles.addBtn,
-                isMobile && { flex: 1.4 },
-                { backgroundColor: theme.primary },
+                styles.addBarActionsRow,
+                isMobile && { width: '100%' },
               ]}
-              disabled={isAddingUser}
-              onPress={handleQuickAddUser}
             >
-              <Text style={{ color: '#FFFFFF', fontWeight: '800', fontSize: fs(12) }}>
-                {isAddingUser ? '...' : '+ Adicionar'}
-              </Text>
-            </TouchableOpacity>
+              <TouchableOpacity
+                accessibilityRole="button"
+                style={[
+                  styles.roleSelectPill,
+                  isMobile && { flex: 1, alignItems: 'center' },
+                  { backgroundColor: theme.surface, borderColor: theme.borderNeutral },
+                ]}
+                onPress={cycleNewRole}
+              >
+                <Text style={{ color: theme.text, fontWeight: '700', fontSize: fs(11) }}>
+                  {getRoleBadgeLabel(newRole)} ▾
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                accessibilityRole="button"
+                activeOpacity={0.85}
+                style={[
+                  styles.addBtn,
+                  isMobile && { flex: 1.4 },
+                  { backgroundColor: theme.primary },
+                ]}
+                disabled={isAddingUser}
+                onPress={handleQuickAddUser}
+              >
+                <Text style={{ color: '#FFFFFF', fontWeight: '800', fontSize: fs(12) }}>
+                  {isAddingUser ? '...' : '+ Adicionar'}
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
-        </View>
+        ) : (
+          <View
+            style={[
+              styles.rbacHintBar,
+              { backgroundColor: theme.surfaceMuted, borderColor: theme.borderNeutral },
+            ]}
+          >
+            <LockIcon size={14} color={theme.primaryDark} />
+            <Text style={{ color: theme.textSecondary, fontSize: fs(11), flex: 1, lineHeight: 16 }}>
+              Controle de menor privilégio ativo (RF01): criação direta de Treinadores e Administradores é exclusiva do perfil <Text style={{ fontWeight: '800', color: theme.text }}>ADMIN</Text>.
+            </Text>
+          </View>
+        )}
 
         {/* Lista de Perfis */}
         {isLoadingUsers ? (
@@ -626,11 +820,18 @@ export function ManagementView({
                         >
                           {u.name}
                         </Text>
-                        <View
+                        <TouchableOpacity
+                          disabled={!isAdmin || isCurrentUser}
+                          accessibilityLabel={
+                            isAdmin && !isCurrentUser
+                              ? `Alterar papel de ${u.name}`
+                              : undefined
+                          }
                           style={[
                             styles.roleBadge,
                             { backgroundColor: theme.primarySoft },
                           ]}
+                          onPress={() => handleCycleUserRole(u)}
                         >
                           <Text
                             style={{
@@ -640,8 +841,9 @@ export function ManagementView({
                             }}
                           >
                             {getRoleBadgeLabel(u.role)}
+                            {isAdmin && !isCurrentUser ? ' ↻' : ''}
                           </Text>
-                        </View>
+                        </TouchableOpacity>
                       </View>
 
                       <Text
@@ -652,7 +854,7 @@ export function ManagementView({
                       >
                         {u.email} •{' '}
                         {u.profile
-                          ? `${u.profile.ageGroup === 'KIDS' ? 'Modo Kids' : 'Modo Pro'} • ${u.profile.skillLevel}`
+                          ? `${u.profile.ageGroup === 'KIDS' ? 'Modo Kids (LGPD)' : 'Modo Pro'} • ${u.profile.skillLevel}`
                           : 'Conta verificada'}
                       </Text>
                     </View>
@@ -750,6 +952,15 @@ export function ManagementView({
             {DEMO_FALLBACK_PROFILES.map((item) => {
               const isCurrent =
                 user?.email.toLowerCase() === item.email.toLowerCase();
+              const shouldMaskMinor = Boolean(item.isMinor && !isAdmin && !isCurrent);
+              const displayName =
+                anonymizeDemo || shouldMaskMinor
+                  ? anonymizeDisplayName(item.name, Boolean(item.isMinor))
+                  : item.name;
+              const displayEmail =
+                anonymizeDemo || shouldMaskMinor
+                  ? maskEmailAddress(item.email)
+                  : item.email;
 
               return (
                 <View
@@ -779,7 +990,7 @@ export function ManagementView({
                           fontSize: fs(13),
                         }}
                       >
-                        {getInitials(item.name)}
+                        {getInitials(displayName)}
                       </Text>
                     </View>
 
@@ -791,7 +1002,7 @@ export function ManagementView({
                             { color: theme.text, fontSize: fs(13) },
                           ]}
                         >
-                          {item.name}
+                          {displayName}
                         </Text>
                         <View
                           style={[
@@ -816,7 +1027,7 @@ export function ManagementView({
                           { color: theme.textSecondary, fontSize: fs(11) },
                         ]}
                       >
-                        {item.email} • {item.summary}
+                        {displayEmail} • {item.summary}
                       </Text>
                     </View>
                   </View>
@@ -932,7 +1143,8 @@ export function ManagementView({
                 const isWarn =
                   log.action.includes('DELETE') ||
                   log.action.includes('FAIL') ||
-                  log.action.includes('STOP');
+                  log.action.includes('STOP') ||
+                  log.action.includes('BLOCKED');
 
                 return (
                   <View
@@ -1119,6 +1331,7 @@ const styles = StyleSheet.create({
   headerBadgesRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    flexWrap: 'wrap',
     gap: 8,
   },
   auditTitleRow: {
@@ -1183,6 +1396,15 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     marginBottom: 16,
     alignItems: 'center',
+  },
+  rbacHintBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 16,
   },
   addBarActionsRow: {
     flexDirection: 'row',
