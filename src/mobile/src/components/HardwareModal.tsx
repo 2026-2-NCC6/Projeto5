@@ -20,6 +20,8 @@ import {
 } from '../hardware/hardwareManager';
 import { mockSerialDriver } from '../hardware/mockSerialDriver';
 import { WebSerialDriver } from '../hardware/webSerialDriver';
+import { hostGatewayBridge } from '../hardware/hostGatewayBridge';
+import { remoteGatewayDriver } from '../hardware/remoteGatewayDriver';
 import { TargetId } from '../../../packages/shared/src/protocol/serial';
 import { useAccessibility } from '../context/AccessibilityContext';
 import { useResponsive } from './useResponsive';
@@ -48,6 +50,7 @@ export function HardwareView() {
   const [pairingToken, setPairingToken] = useState<string>('sta-iot-uno-r3-demo-token-2026');
   const [isPairingAuthorized, setIsPairingAuthorized] = useState<boolean>(false);
   const [pairingStatusMsg, setPairingStatusMsg] = useState<string | null>(null);
+  const [connectedControllers, setConnectedControllers] = useState<number>(hostGatewayBridge.controllers);
 
   const isWebSerialSupported = WebSerialDriver.isSupported();
 
@@ -59,6 +62,10 @@ export function HardwareView() {
     const unsubStatus = hardwareManager.addStatusListener((conn) => {
       setIsConnected(conn);
       setIsConnecting(false);
+    });
+
+    const unsubBridge = hostGatewayBridge.addStatusListener((_conn, count) => {
+      setConnectedControllers(count);
     });
 
     const unsubLogs = hardwareManager.addLogListener((dir, msg) => {
@@ -78,13 +85,14 @@ export function HardwareView() {
     return () => {
       unsubStatus();
       unsubLogs();
+      unsubBridge();
     };
   }, []);
 
   const handleSelectMode = async (mode: DriverMode) => {
     setActiveMode(mode);
     await hardwareManager.setMode(mode);
-    if (mode === 'MOCK' && !hardwareManager.isConnected) {
+    if ((mode === 'MOCK' || mode === 'REMOTE_GATEWAY') && !hardwareManager.isConnected) {
       await hardwareManager.connect();
     }
   };
@@ -100,8 +108,13 @@ export function HardwareView() {
       if (success) {
         // Valida pareamento autorizado com a API REST (RF05)
         try {
+          const deviceCode = activeMode === 'WEB_SERIAL'
+            ? 'STA-UNO-R3-01'
+            : activeMode === 'REMOTE_GATEWAY'
+              ? 'STA-REMOTE-GATEWAY-01'
+              : 'STA-SIM-VIRTUAL-01';
           const res = await api.pairDevice({
-            deviceCode: activeMode === 'WEB_SERIAL' ? 'STA-UNO-R3-01' : 'STA-SIM-VIRTUAL-01',
+            deviceCode,
             pairingToken,
             piezoThresholds: piezoSensors,
           });
@@ -114,7 +127,7 @@ export function HardwareView() {
         }
       }
     } catch (err: any) {
-      setPairingStatusMsg(`Falha na conexão serial: ${err?.message || err}`);
+      setPairingStatusMsg(`Falha na conexão: ${err?.message || err}`);
     } finally {
       setIsConnecting(false);
     }
@@ -160,8 +173,8 @@ export function HardwareView() {
           ]}
           onPress={() => handleSelectMode('MOCK')}
         >
-          <Text style={[styles.modeTabText, { color: activeMode === 'MOCK' ? '#FFF' : theme.textSecondary, fontSize: fs(12) }]}>
-            Simulador Digital (Bancada)
+          <Text style={[styles.modeTabText, { color: activeMode === 'MOCK' ? '#FFF' : theme.textSecondary, fontSize: fs(11.5) }]}>
+            Simulador Digital
           </Text>
         </TouchableOpacity>
 
@@ -173,11 +186,46 @@ export function HardwareView() {
           ]}
           onPress={() => handleSelectMode('WEB_SERIAL')}
         >
-          <Text style={[styles.modeTabText, { color: activeMode === 'WEB_SERIAL' ? '#FFF' : theme.textSecondary, fontSize: fs(12) }]}>
-            Arduino Físico (USB Serial 115200)
+          <Text style={[styles.modeTabText, { color: activeMode === 'WEB_SERIAL' ? '#FFF' : theme.textSecondary, fontSize: fs(11.5) }]}>
+            Arduino Físico (USB PC)
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          activeOpacity={0.8}
+          style={[
+            styles.modeTab,
+            activeMode === 'REMOTE_GATEWAY' && { backgroundColor: theme.primary, borderColor: theme.primaryDark },
+          ]}
+          onPress={() => handleSelectMode('REMOTE_GATEWAY')}
+        >
+          <Text style={[styles.modeTabText, { color: activeMode === 'REMOTE_GATEWAY' ? '#FFF' : theme.textSecondary, fontSize: fs(11.5) }]}>
+            📱 Celular (Ponte PC)
           </Text>
         </TouchableOpacity>
       </View>
+
+      {/* Indicador de Ponte WebSocket para o PC */}
+      {activeMode === 'WEB_SERIAL' && isConnected && (
+        <View style={[styles.gatewayBanner, { backgroundColor: '#F0FDF4', borderColor: '#86EFAC' }]}>
+          <WifiIcon size={16} color="#15803D" />
+          <Text style={[styles.gatewayBannerText, { color: '#15803D', fontSize: fs(12) }]}>
+            Ponte com Celular Ativa: {connectedControllers} celular(es) conectado(s) na Arena.
+          </Text>
+        </View>
+      )}
+
+      {/* Dica explicativa para o modo Celular */}
+      {activeMode === 'REMOTE_GATEWAY' && (
+        <View style={[styles.gatewayBanner, { backgroundColor: '#EFF6FF', borderColor: '#93C5FD' }]}>
+          <WifiIcon size={16} color="#1D4ED8" />
+          <Text style={[styles.gatewayBannerText, { color: '#1E40AF', fontSize: fs(12) }]}>
+            {isConnected
+              ? `Conectado ao PC da Arena! Comandos enviados do celular irão para o Arduino e os impactos dos sensores serão recebidos aqui.`
+              : `Toque em "Conectar ao PC" abaixo para parear com o PC onde o Arduino está conectado via USB.`}
+          </Text>
+        </View>
+      )}
 
       {/* Caixa de Conexão e Token RF05 */}
       <View style={[styles.connectCard, { backgroundColor: theme.surfaceMint, borderColor: theme.primaryBorder }]}>
@@ -210,7 +258,11 @@ export function HardwareView() {
             <ActivityIndicator size="small" color="#FFF" />
           ) : (
             <Text style={[styles.connectButtonText, { fontSize: fs(13) }]}>
-              {isConnected ? 'Desconectar Dispositivo' : 'Conectar Porta Serial & Parear'}
+              {isConnected
+                ? 'Desconectar Dispositivo'
+                : activeMode === 'REMOTE_GATEWAY'
+                  ? 'Conectar ao PC da Arena (WebSocket)'
+                  : 'Conectar Porta Serial & Parear'}
             </Text>
           )}
         </TouchableOpacity>
@@ -311,6 +363,19 @@ const styles = StyleSheet.create({
   },
   modeTabText: {
     fontWeight: '600',
+  },
+  gatewayBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    padding: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    marginBottom: 12,
+  },
+  gatewayBannerText: {
+    flex: 1,
+    lineHeight: 16,
   },
   connectCard: {
     padding: 12,

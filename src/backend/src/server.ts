@@ -1,3 +1,4 @@
+import http from 'http';
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import { config } from './config';
@@ -10,6 +11,7 @@ import { sessionRouter } from './routes/sessionRoutes';
 import { incidentRouter } from './routes/incidentRoutes';
 import { categoryRouter, deviceRouter, settingsRouter } from './routes/adminRoutes';
 import { motherPlatformRouter } from './routes/motherPlatformRoutes';
+import { hardwareGateway } from './services/hardwareGateway';
 import { isAllowedCorsOrigin, securityHeaders } from './middlewares/security';
 import {
   correlationAndStructuredLogger,
@@ -103,6 +105,11 @@ const healthHandler = async (_req: Request, res: Response) => {
 app.get('/api/health', healthHandler);
 app.get('/api/v1/health', healthHandler);
 
+// Status do Gateway WebSocket para hardware e celular
+app.get(['/api/v1/hardware/gateway-status', '/api/hardware/gateway-status'], (_req: Request, res: Response) => {
+  res.json(hardwareGateway.getState());
+});
+
 // Tratamento de rotas não encontradas
 app.use((req: Request, res: Response) => {
   res.status(404).json({
@@ -128,10 +135,14 @@ async function startServer() {
     await initDatabase();
     console.log('✅ Banco de dados pronto.');
 
-    app.listen(config.port, '0.0.0.0', () => {
+    const server = http.createServer(app);
+    hardwareGateway.init(server);
+
+    server.listen(config.port, '0.0.0.0', () => {
       console.log(`🚀 Smart Tennis Arena Backend API rodando em http://localhost:${config.port}`);
       console.log(`📊 Health check disponível em http://localhost:${config.port}/api/v1/health`);
       console.log(`📘 Documentação OpenAPI disponível em http://localhost:${config.port}/api/v1/docs`);
+      console.log(`📡 Hardware Gateway WebSocket disponível em ws://localhost:${config.port}/ws/hardware`);
     });
   } catch (err) {
     console.error('❌ Falha fatal ao iniciar o servidor:', err);
