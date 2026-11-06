@@ -32,11 +32,11 @@ const uint8_t PIN_ESTOP_BUTTON = 2;
 // LED de status do sistema
 const uint8_t PIN_STATUS_LED = 13;
 
-// Limiar padrão de sensibilidade ADC (0 a 1023)
-uint16_t piezoThresholds[NUM_TARGETS] = {250, 250, 250, 250, 250};
+// Limiar padrão de sensibilidade ADC (0 a 1023) — Calibrado para 100 para resposta rápida e sensível
+uint16_t piezoThresholds[NUM_TARGETS] = {100, 100, 100, 100, 100};
 
 // Tempo de debounce / lockout após impacto válido (ms)
-const unsigned long DEBOUNCE_LOCKOUT_MS = 200;
+const unsigned long DEBOUNCE_LOCKOUT_MS = 180;
 
 enum FirmwareState {
   STATE_BOOT,
@@ -62,7 +62,9 @@ uint8_t serialBufferIdx = 0;
 
 // Protótipos de Funções
 void handleEmergencyInterrupt();
+uint16_t readPiezoStable(uint8_t index);
 void checkSensors();
+void checkSensorsIdle();
 void setTargetLeds(uint8_t targetId, bool state);
 void clearAllLeds();
 void playToneSequence(uint16_t freq, uint16_t durationMs);
@@ -144,6 +146,9 @@ void loop() {
     } else {
       checkSensors();
     }
+  } else if (currentState == STATE_IDLE_READY) {
+    // Monitoramento contínuo em bancada/repouso para teste instantâneo dos piezos
+    checkSensorsIdle();
   }
 }
 
@@ -151,32 +156,72 @@ void handleEmergencyInterrupt() {
   emergencyTriggered = true;
 }
 
+// Leitura com amostragem dupla para descarte de carga residual no multiplexador ADC do ATmega328P
+uint16_t readPiezoStable(uint8_t index) {
+  analogRead(PIN_PIEZO[index]); // Descarta resíduo do canal anterior
+  delayMicroseconds(20);        // Tempo de acomodação do Sample & Hold
+  return analogRead(PIN_PIEZO[index]); // Leitura real estabilizada
+}
+
+// Detecção durante a partida com priorização do Alvo Ativo e filtro anti-ressonância
 void checkSensors() {
   if (millis() - lastHitTime < DEBOUNCE_LOCKOUT_MS) return;
+  if (currentActiveTarget < 1 || currentActiveTarget > NUM_TARGETS) return;
 
-  uint16_t maxVal = 0;
-  uint8_t triggeredTarget = 0;
+  uint8_t activeIdx = currentActiveTarget - 1;
+  uint16_t activeReading = readPiezoStable(activeIdx);
+
+  // 1. Prioridade absoluta para o Alvo Ativo (evita que a vibração da estrutura roube o acerto)
+  if (activeReading >= piezoThresholds[activeIdx]) {
+    lastHitTime = millis();
+    uint8_t hitTarget = currentActiveTarget;
+    currentState = STATE_IDLE_READY;
+    currentActiveTarget = 0;
+    clearAllLeds();
+    soundHitFeedback();
+    sendHitEvent(hitTarget, activeReading);
+    return;
+  }
+
+  // 2. Se o alvo ativo não disparou, verifica se outro alvo recebeu impacto direto
+  // Aplica margem de +25% no limiar para evitar que ressonância mecânica da carcaça gere falso disparo
+  uint16_t maxWrongVal = 0;
+  uint8_t wrongTarget = 0;
 
   for (uint8_t i = 0; i < NUM_TARGETS; i++) {
-    uint16_t reading = analogRead(PIN_PIEZO[i]);
-    if (reading >= piezoThresholds[i] && reading > maxVal) {
-      maxVal = reading;
-      triggeredTarget = i + 1;
+    if (i == activeIdx) continue;
+    uint16_t reading = readPiezoStable(i);
+    uint16_t wrongThreshold = (piezoThresholds[i] * 5) / 4;
+    if (reading >= wrongThreshold && reading > maxWrongVal) {
+      maxWrongVal = reading;
+      wrongTarget = i + 1;
     }
   }
 
-  if (triggeredTarget > 0) {
+  if (wrongTarget > 0) {
     lastHitTime = millis();
-    if (triggeredTarget == currentActiveTarget) {
-      uint8_t hitTarget = currentActiveTarget;
-      currentState = STATE_IDLE_READY;
-      currentActiveTarget = 0;
-      clearAllLeds();
-      soundHitFeedback();
-      sendHitEvent(hitTarget, maxVal);
-    } else {
-      soundWrongFeedback();
-      sendWrongHitEvent(triggeredTarget, maxVal, currentActiveTarget);
+    soundWrongFeedback();
+    sendWrongHitEvent(wrongTarget, maxWrongVal, currentActiveTarget);
+  }
+}
+
+// Teste livre de bancada (quando nenhum treino está rodando): qualquer toque no piezo apita e loga
+void checkSensorsIdle() {
+  if (millis() - lastHitTime < DEBOUNCE_LOCKOUT_MS) return;
+
+  for (uint8_t i = 0; i < NUM_TARGETS; i++) {
+    uint16_t reading = readPiezoStable(i);
+    if (reading >= piezoThresholds[i]) {
+      lastHitTime = millis();
+      playToneSequence(2200, 25); // Bipe rápido de confirmação
+      Serial.print(F("{\"evt\":\"TAP\",\"tgt\":"));
+      Serial.print(i + 1);
+      Serial.print(F(",\"val\":"));
+      Serial.print(reading);
+      Serial.print(F(",\"ts\":"));
+      Serial.print(millis());
+      Serial.println(F("}"));
+      break;
     }
   }
 }
@@ -377,10 +422,21 @@ void executeCommand(char* buf) {
     }
     return;
   }
+
+  // 11. Comando POLL de Diagnóstico (Lê valores brutos instantâneos dos 5 piezos)
+  if (strstr(buf, "\"POLL\"") != NULL || strcmp(buf, "POLL") == 0) {
+    Serial.print(F("{\"evt\":\"POLL\",\"raw\":["));
+    for (uint8_t i = 0; i < NUM_TARGETS; i++) {
+      Serial.print(readPiezoStable(i));
+      if (i < NUM_TARGETS - 1) Serial.print(F(","));
+    }
+    Serial.println(F("]}"));
+    return;
+  }
 }
 
 void sendReadyEvent() {
-  Serial.print(F("{\"evt\":\"READY\",\"hw\":\"STA-UNO-R3\",\"fw\":\"1.1.0\",\"piezo\":["));
+  Serial.print(F("{\"evt\":\"READY\",\"hw\":\"STA-UNO-R3\",\"fw\":\"1.2.0\",\"piezo\":["));
   for (uint8_t i = 0; i < NUM_TARGETS; i++) {
     Serial.print(piezoThresholds[i]);
     if (i < NUM_TARGETS - 1) Serial.print(F(","));
