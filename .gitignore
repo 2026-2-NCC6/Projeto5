@@ -24,6 +24,8 @@ web-build/
 .env.local
 .env.*.local
 *.pem
+.docs/*
+src/.docs/*
 
 # Logs
 npm-debug.log*
