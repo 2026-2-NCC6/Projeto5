@@ -3,7 +3,7 @@
  * Alinhado com: RF03 (Consulta e Filtros por Público, Objetivo, Duração, Dificuldade e Sensores) e RF18
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -15,18 +15,18 @@ import {
 import {
   DrillDefinition,
   DrillDifficulty,
-  DrillCategory,
   DEFAULT_DRILLS,
 } from '../../../packages/shared/src/contracts/drills';
 import { api } from '../services/api';
 import { useAccessibility } from '../context/AccessibilityContext';
 import { useResponsive } from './useResponsive';
-import { SlidersIcon, RefreshIcon, TargetIcon } from './Icons';
+import { SlidersIcon, RefreshIcon, PlayIcon, CloseIcon } from './Icons';
 
 interface DrillCatalogCardProps {
   selectedDrill: DrillDefinition;
   isKidsMode: boolean;
   onSelectDrill: (drill: DrillDefinition) => void;
+  onStartDrill?: (drill: DrillDefinition) => void;
 }
 
 function getDifficultyLabel(diff: DrillDifficulty, isKids: boolean): string {
@@ -51,11 +51,12 @@ export const DrillCatalogCard: React.FC<DrillCatalogCardProps> = ({
   selectedDrill,
   isKidsMode,
   onSelectDrill,
+  onStartDrill,
 }) => {
   const { theme, fs } = useAccessibility();
   const { isMobile, isTablet, isDesktop, cardPadding } = useResponsive();
 
-  const [drills, setDrills] = useState<DrillDefinition[]>(DEFAULT_DRILLS);
+  const [rawDrills, setRawDrills] = useState<DrillDefinition[]>(DEFAULT_DRILLS);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [selectedCategory, setSelectedCategory] = useState<string>('TODAS');
@@ -64,20 +65,15 @@ export const DrillCatalogCard: React.FC<DrillCatalogCardProps> = ({
   const fetchCatalog = async () => {
     setIsLoading(true);
     try {
-      const items = await api.listDrills({
-        isKidsAdapted: isKidsMode ? true : undefined,
-        category: selectedCategory !== 'TODAS' ? selectedCategory : undefined,
-        difficulty: selectedDifficulty !== null ? selectedDifficulty : undefined,
-        search: searchTerm.trim() ? searchTerm.trim() : undefined,
-      });
+      const items = await api.listDrills({});
       if (Array.isArray(items) && items.length > 0) {
-        setDrills(items);
+        setRawDrills(items);
       } else {
-        setDrills(DEFAULT_DRILLS);
+        setRawDrills(DEFAULT_DRILLS);
       }
     } catch {
-      // Fallback gracioso offline
-      setDrills(DEFAULT_DRILLS);
+      // Fallback gracioso offline mantendo filtros funcionais localmente
+      setRawDrills(DEFAULT_DRILLS);
     } finally {
       setIsLoading(false);
     }
@@ -85,7 +81,36 @@ export const DrillCatalogCard: React.FC<DrillCatalogCardProps> = ({
 
   useEffect(() => {
     fetchCatalog();
-  }, [isKidsMode, selectedCategory, selectedDifficulty]);
+  }, []);
+
+  // Filtragem local instantânea e determinística (funciona online e offline)
+  const filteredDrills = useMemo(() => {
+    return rawDrills.filter((drill) => {
+      if (selectedCategory !== 'TODAS' && drill.category !== selectedCategory) {
+        return false;
+      }
+      if (selectedDifficulty !== null && drill.difficulty !== selectedDifficulty) {
+        return false;
+      }
+      if (searchTerm.trim()) {
+        const q = searchTerm.trim().toLowerCase();
+        const haystack = `${drill.title} ${drill.description} ${drill.objective || ''} ${drill.authorName || ''}`.toLowerCase();
+        if (!haystack.includes(q)) {
+          return false;
+        }
+      }
+      return true;
+    });
+  }, [rawDrills, selectedCategory, selectedDifficulty, searchTerm]);
+
+  const hasActiveFilters =
+    selectedCategory !== 'TODAS' || selectedDifficulty !== null || searchTerm.trim().length > 0;
+
+  const clearFilters = () => {
+    setSelectedCategory('TODAS');
+    setSelectedDifficulty(null);
+    setSearchTerm('');
+  };
 
   return (
     <View
@@ -104,7 +129,7 @@ export const DrillCatalogCard: React.FC<DrillCatalogCardProps> = ({
           <Text
             style={[
               styles.title,
-              { color: theme.text, fontSize: isMobile ? fs(16) : fs(17) },
+              { color: theme.text, fontSize: isMobile ? fs(15) : fs(17) },
             ]}
           >
             Protocolos de Treino (RF03 / RF18)
@@ -113,6 +138,7 @@ export const DrillCatalogCard: React.FC<DrillCatalogCardProps> = ({
 
         <TouchableOpacity
           activeOpacity={0.7}
+          accessibilityLabel="Atualizar catálogo de treinos"
           style={[styles.refreshBtn, { borderColor: theme.borderNeutral }]}
           onPress={fetchCatalog}
         >
@@ -130,174 +156,240 @@ export const DrillCatalogCard: React.FC<DrillCatalogCardProps> = ({
           { color: theme.textSecondary, fontSize: fs(12) },
         ]}
       >
-        Catálogo oficial homologado via API. Filtre por objetivo, cadência e nível técnico.
+        Toque em um treino para selecioná-lo ou filtrá-lo por objetivo e nível técnico.
       </Text>
 
       {/* Barra de Filtros RF03 */}
       <View style={styles.filterBar}>
-        <TextInput
+        <View
           style={[
-            styles.searchInput,
+            styles.searchInputWrap,
             {
               backgroundColor: theme.surfaceMuted,
               borderColor: theme.borderNeutral,
-              color: theme.text,
-              fontSize: fs(12),
             },
           ]}
-          placeholder="Buscar por objetivo ou nome..."
-          placeholderTextColor={theme.textMuted}
-          value={searchTerm}
-          onChangeText={setSearchTerm}
-          onSubmitEditing={fetchCatalog}
-        />
-
-        <View style={styles.pillsRow}>
-          {['TODAS', 'PRECISION', 'REACTION', 'ENDURANCE', 'KIDS_FUN'].map((cat) => (
+        >
+          <TextInput
+            style={[
+              styles.searchInput,
+              {
+                color: theme.text,
+                fontSize: fs(12),
+              },
+            ]}
+            placeholder="Buscar por objetivo ou nome..."
+            placeholderTextColor={theme.textMuted}
+            value={searchTerm}
+            onChangeText={setSearchTerm}
+          />
+          {searchTerm.length > 0 && (
             <TouchableOpacity
-              key={cat}
-              activeOpacity={0.75}
-              style={[
-                styles.filterPill,
-                {
-                  backgroundColor: selectedCategory === cat ? theme.primary : theme.surfaceMuted,
-                  borderColor: selectedCategory === cat ? theme.primaryDark : theme.borderNeutral,
-                },
-              ]}
-              onPress={() => setSelectedCategory(cat)}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              onPress={() => setSearchTerm('')}
             >
-              <Text
+              <CloseIcon size={14} color={theme.textMuted} />
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {/* Filtro por Categoria */}
+        <View style={styles.pillsRow}>
+          {[
+            { key: 'TODAS', label: 'Todas' },
+            { key: 'PRECISION', label: 'Precisão' },
+            { key: 'REACTION', label: 'Reação' },
+            { key: 'ENDURANCE', label: 'Resistência' },
+            { key: 'KIDS_FUN', label: '⭐ Kids' },
+          ].map((cat) => {
+            const active = selectedCategory === cat.key;
+            return (
+              <TouchableOpacity
+                key={cat.key}
+                activeOpacity={0.75}
                 style={[
-                  styles.filterPillText,
+                  styles.filterPill,
                   {
-                    color: selectedCategory === cat ? '#FFF' : theme.textSecondary,
-                    fontSize: fs(10.5),
+                    backgroundColor: active ? theme.primary : theme.surfaceMuted,
+                    borderColor: active ? theme.primaryDark : theme.borderNeutral,
                   },
                 ]}
+                onPress={() => {
+                  const nextCat = active && cat.key !== 'TODAS' ? 'TODAS' : cat.key;
+                  setSelectedCategory(nextCat);
+                  // Seleciona automaticamente o primeiro treino correspondente ao filtro
+                  const matching = rawDrills.filter(
+                    (d) => nextCat === 'TODAS' || d.category === nextCat
+                  );
+                  if (matching.length > 0 && !matching.some((d) => d.id === selectedDrill.id)) {
+                    onSelectDrill(matching[0]);
+                  }
+                }}
               >
-                {cat === 'TODAS'
-                  ? 'Todas'
-                  : cat === 'PRECISION'
-                  ? 'Precisão'
-                  : cat === 'REACTION'
-                  ? 'Reação'
-                  : cat === 'ENDURANCE'
-                  ? 'Resistência'
-                  : 'Kids'}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-      </View>
-
-      {/* Lista de Treinos */}
-      <View
-        style={[
-          styles.list,
-          isTablet && !isDesktop && styles.listTabletGrid,
-        ]}
-      >
-        {drills.map((drill) => {
-          const isSelected = selectedDrill.id === drill.id;
-          const maxWindow = Math.max(...drill.steps.map((s) => s.durationMs));
-          const effectiveWindow = isKidsMode
-            ? Math.round(maxWindow * 1.5)
-            : maxWindow;
-          const basePts = drill.scoringRules?.basePoints ?? 100;
-
-          return (
-            <TouchableOpacity
-              key={drill.id}
-              accessibilityRole="button"
-              accessibilityState={{ selected: isSelected }}
-              activeOpacity={0.82}
-              onPress={() => onSelectDrill(drill)}
-              style={[
-                styles.drillCard,
-                isTablet && !isDesktop && styles.drillCardTablet,
-                {
-                  backgroundColor: isSelected ? theme.surfaceMint : theme.surface,
-                  borderColor: isSelected ? theme.primary : theme.borderNeutral,
-                  borderWidth: isSelected ? 2 : 1,
-                  padding: isMobile ? 13 : 15,
-                },
-              ]}
-            >
-              <View style={styles.drillTopRow}>
                 <Text
                   style={[
-                    styles.drillTitle,
-                    { color: theme.text, fontSize: fs(14) },
-                  ]}
-                >
-                  {drill.title}
-                </Text>
-                <View
-                  style={[
-                    styles.diffBadge,
+                    styles.filterPillText,
                     {
-                      backgroundColor: theme.surface,
-                      borderColor: isSelected ? theme.primaryBorder : theme.borderNeutral,
-                    },
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.diffBadgeText,
-                      {
-                        color: isSelected ? theme.primaryDark : theme.textSecondary,
-                        fontSize: fs(10),
-                      },
-                    ]}
-                  >
-                    {getDifficultyLabel(drill.difficulty, drill.isKidsAdapted)}
-                  </Text>
-                </View>
-              </View>
-
-              <Text
-                style={[
-                  styles.drillDesc,
-                  { color: theme.textSecondary, fontSize: fs(12) },
-                ]}
-              >
-                {drill.description}
-              </Text>
-
-              {drill.objective && (
-                <Text
-                  numberOfLines={2}
-                  style={[
-                    styles.drillObjective,
-                    { color: theme.primaryDark, fontSize: fs(11) },
-                  ]}
-                >
-                  🎯 Objetivo: {drill.objective}
-                </Text>
-              )}
-
-              <View style={styles.metaRow}>
-                <Text
-                  style={[
-                    styles.drillMeta,
-                    {
-                      color: isSelected ? theme.primaryDark : theme.textMuted,
+                      color: active ? '#FFF' : theme.textSecondary,
                       fontSize: fs(11),
                     },
                   ]}
                 >
-                  {drill.steps.length} disparos • Janela: {effectiveWindow}ms • Base: {basePts} pts
+                  {cat.label}
                 </Text>
-                {drill.version && (
-                  <Text style={[styles.versionTag, { color: theme.textMuted, fontSize: fs(10) }]}>
-                    v{drill.version}
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      </View>
+
+      {/* Lista de Treinos */}
+      {filteredDrills.length === 0 ? (
+        <View
+          style={[
+            styles.emptyBox,
+            { backgroundColor: theme.surfaceMuted, borderColor: theme.borderNeutral },
+          ]}
+        >
+          <Text style={[styles.emptyText, { color: theme.textSecondary, fontSize: fs(12.5) }]}>
+            Nenhum treino encontrado para o filtro selecionado.
+          </Text>
+          {hasActiveFilters && (
+            <TouchableOpacity
+              activeOpacity={0.8}
+              style={[styles.clearFilterBtn, { backgroundColor: theme.primary }]}
+              onPress={clearFilters}
+            >
+              <Text style={{ color: '#FFF', fontWeight: '700', fontSize: fs(12) }}>
+                Mostrar Todos os Treinos
+              </Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      ) : (
+        <View
+          style={[
+            styles.list,
+            isTablet && !isDesktop && styles.listTabletGrid,
+          ]}
+        >
+          {filteredDrills.map((drill) => {
+            const isSelected = selectedDrill.id === drill.id;
+            const maxWindow = Math.max(...drill.steps.map((s) => s.durationMs));
+            const effectiveWindow = isKidsMode
+              ? Math.round(maxWindow * 1.5)
+              : maxWindow;
+            const basePts = drill.scoringRules?.basePoints ?? 100;
+
+            return (
+              <TouchableOpacity
+                key={drill.id}
+                accessibilityRole="button"
+                accessibilityState={{ selected: isSelected }}
+                activeOpacity={0.82}
+                onPress={() => onSelectDrill(drill)}
+                style={[
+                  styles.drillCard,
+                  isTablet && !isDesktop && styles.drillCardTablet,
+                  {
+                    backgroundColor: isSelected ? theme.surfaceMint : theme.surface,
+                    borderColor: isSelected ? theme.primary : theme.borderNeutral,
+                    borderWidth: isSelected ? 2 : 1,
+                    padding: isMobile ? 12 : 15,
+                  },
+                ]}
+              >
+                <View style={styles.drillTopRow}>
+                  <Text
+                    style={[
+                      styles.drillTitle,
+                      { color: theme.text, fontSize: fs(13.5) },
+                    ]}
+                  >
+                    {drill.title}
+                  </Text>
+                  <View
+                    style={[
+                      styles.diffBadge,
+                      {
+                        backgroundColor: theme.surface,
+                        borderColor: isSelected ? theme.primaryBorder : theme.borderNeutral,
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.diffBadgeText,
+                        {
+                          color: isSelected ? theme.primaryDark : theme.textSecondary,
+                          fontSize: fs(10),
+                        },
+                      ]}
+                    >
+                      {getDifficultyLabel(drill.difficulty, drill.isKidsAdapted)}
+                    </Text>
+                  </View>
+                </View>
+
+                <Text
+                  style={[
+                    styles.drillDesc,
+                    { color: theme.textSecondary, fontSize: fs(11.5) },
+                  ]}
+                >
+                  {drill.description}
+                </Text>
+
+                {drill.objective && (
+                  <Text
+                    numberOfLines={2}
+                    style={[
+                      styles.drillObjective,
+                      { color: theme.primaryDark, fontSize: fs(11) },
+                    ]}
+                  >
+                    🎯 Objetivo: {drill.objective}
                   </Text>
                 )}
-              </View>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
+
+                <View style={styles.metaRow}>
+                  <Text
+                    style={[
+                      styles.drillMeta,
+                      {
+                        color: isSelected ? theme.primaryDark : theme.textMuted,
+                        fontSize: fs(11),
+                      },
+                    ]}
+                  >
+                    {drill.steps.length} disparos • Janela: {effectiveWindow}ms • Base: {basePts} pts
+                  </Text>
+
+                  {isSelected && onStartDrill ? (
+                    <TouchableOpacity
+                      activeOpacity={0.85}
+                      style={[styles.quickStartPill, { backgroundColor: theme.primary }]}
+                      onPress={() => {
+                        onSelectDrill(drill);
+                        onStartDrill(drill);
+                      }}
+                    >
+                      <PlayIcon size={11} color="#FFF" />
+                      <Text style={{ color: '#FFF', fontWeight: '800', fontSize: fs(11) }}>
+                        Iniciar
+                      </Text>
+                    </TouchableOpacity>
+                  ) : drill.version ? (
+                    <Text style={[styles.versionTag, { color: theme.textMuted, fontSize: fs(10) }]}>
+                      v{drill.version}
+                    </Text>
+                  ) : null}
+                </View>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      )}
     </View>
   );
 };
@@ -311,34 +403,42 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    gap: 8,
     marginBottom: 4,
   },
   titleWrap: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+    flex: 1,
   },
   title: {
     fontWeight: '700',
+    flexShrink: 1,
   },
   refreshBtn: {
-    padding: 6,
+    padding: 7,
     borderRadius: 8,
     borderWidth: 1,
   },
   subtitle: {
-    lineHeight: 18,
+    lineHeight: 17,
     marginBottom: 10,
   },
   filterBar: {
     marginBottom: 12,
-    gap: 6,
+    gap: 8,
   },
-  searchInput: {
+  searchInputWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: 10,
-    paddingVertical: 6,
     borderRadius: 8,
     borderWidth: 1,
+  },
+  searchInput: {
+    flex: 1,
+    paddingVertical: 7,
   },
   pillsRow: {
     flexDirection: 'row',
@@ -346,13 +446,29 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   filterPill: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingHorizontal: 11,
+    paddingVertical: 6,
     borderRadius: 99,
     borderWidth: 1,
   },
   filterPillText: {
-    fontWeight: '600',
+    fontWeight: '700',
+  },
+  emptyBox: {
+    padding: 16,
+    borderRadius: 10,
+    borderWidth: 1,
+    alignItems: 'center',
+    gap: 10,
+  },
+  emptyText: {
+    textAlign: 'center',
+    fontWeight: '500',
+  },
+  clearFilterBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 8,
   },
   list: {
     gap: 10,
@@ -371,7 +487,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 6,
+    marginBottom: 5,
   },
   drillTitle: {
     fontWeight: '700',
@@ -388,8 +504,8 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   drillDesc: {
-    lineHeight: 17,
-    marginBottom: 6,
+    lineHeight: 16,
+    marginBottom: 5,
   },
   drillObjective: {
     fontStyle: 'italic',
@@ -398,13 +514,24 @@ const styles = StyleSheet.create({
   },
   metaRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    gap: 6,
   },
   drillMeta: {
-    fontWeight: '500',
+    fontWeight: '600',
+    flexShrink: 1,
+  },
+  quickStartPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 11,
+    paddingVertical: 5,
+    borderRadius: 99,
   },
   versionTag: {
-    fontFamily: 'monospace',
+    fontWeight: '600',
   },
 });

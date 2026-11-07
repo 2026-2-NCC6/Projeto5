@@ -3,7 +3,7 @@
  * Alinhado com: RF05 (Pareamento Autorizado e Diagnóstico dos 5 Piezos), RF08 e Cibersegurança IoT
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   StyleSheet,
   Text,
@@ -18,28 +18,19 @@ import {
   DriverMode,
   SerialLogEntry,
 } from '../hardware/hardwareManager';
-import { mockSerialDriver } from '../hardware/mockSerialDriver';
-import { WebSerialDriver } from '../hardware/webSerialDriver';
 import { hostGatewayBridge } from '../hardware/hostGatewayBridge';
-import { remoteGatewayDriver } from '../hardware/remoteGatewayDriver';
-import { TargetId } from '../../../packages/shared/src/protocol/serial';
 import { useAccessibility } from '../context/AccessibilityContext';
 import { useResponsive } from './useResponsive';
-import { api } from '../services/api';
+import { api, getDetectedHostIp, setCustomApiHost } from '../services/api';
 import {
   CpuIcon,
   WifiIcon,
-  UsbIcon,
   TerminalIcon,
-  RefreshIcon,
-  SlidersIcon,
-  CheckCircleIcon,
-  ShieldAlertIcon,
 } from './Icons';
 
 export function HardwareView() {
   const { theme, fs } = useAccessibility();
-  const { width, isMobile, cardPadding } = useResponsive();
+  const { isMobile, cardPadding } = useResponsive();
 
   const [activeMode, setActiveMode] = useState<DriverMode>(hardwareManager.mode);
   const [isConnected, setIsConnected] = useState<boolean>(hardwareManager.isConnected);
@@ -48,11 +39,10 @@ export function HardwareView() {
   const [piezoSensors, setPiezoSensors] = useState<number[]>([250, 250, 250, 250, 250]);
   const [customCommand, setCustomCommand] = useState<string>('');
   const [pairingToken, setPairingToken] = useState<string>('sta-iot-uno-r3-demo-token-2026');
+  const [hostIpInput, setHostIpInput] = useState<string>(getDetectedHostIp());
   const [isPairingAuthorized, setIsPairingAuthorized] = useState<boolean>(false);
   const [pairingStatusMsg, setPairingStatusMsg] = useState<string | null>(null);
   const [connectedControllers, setConnectedControllers] = useState<number>(hostGatewayBridge.controllers);
-
-  const isWebSerialSupported = WebSerialDriver.isSupported();
 
   useEffect(() => {
     setActiveMode(hardwareManager.mode);
@@ -91,8 +81,12 @@ export function HardwareView() {
 
   const handleSelectMode = async (mode: DriverMode) => {
     setActiveMode(mode);
+    setPairingStatusMsg(null);
+    if (hostIpInput.trim()) {
+      setCustomApiHost(hostIpInput.trim());
+    }
     await hardwareManager.setMode(mode);
-    if ((mode === 'MOCK' || mode === 'REMOTE_GATEWAY') && !hardwareManager.isConnected) {
+    if (mode === 'MOCK' && !hardwareManager.isConnected) {
       await hardwareManager.connect();
     }
   };
@@ -101,6 +95,9 @@ export function HardwareView() {
     setIsConnecting(true);
     setPairingStatusMsg(null);
     try {
+      if (hostIpInput.trim()) {
+        setCustomApiHost(hostIpInput.trim());
+      }
       if (hardwareManager.isConnected) {
         await hardwareManager.disconnect();
       }
@@ -108,11 +105,12 @@ export function HardwareView() {
       if (success) {
         // Valida pareamento autorizado com a API REST (RF05)
         try {
-          const deviceCode = activeMode === 'WEB_SERIAL'
-            ? 'STA-UNO-R3-01'
-            : activeMode === 'REMOTE_GATEWAY'
-              ? 'STA-REMOTE-GATEWAY-01'
-              : 'STA-SIM-VIRTUAL-01';
+          const deviceCode =
+            activeMode === 'WEB_SERIAL'
+              ? 'STA-UNO-R3-01'
+              : activeMode === 'REMOTE_GATEWAY'
+                ? 'STA-WIFI-BRIDGE-01'
+                : 'STA-SIM-VIRTUAL-01';
           const res = await api.pairDevice({
             deviceCode,
             pairingToken,
@@ -120,11 +118,21 @@ export function HardwareView() {
           });
           if (res.authorized) {
             setIsPairingAuthorized(true);
-            setPairingStatusMsg('Dispositivo IoT pareado e autenticado com sucesso na Arena!');
+            setPairingStatusMsg('✓ Dispositivo IoT pareado e autenticado com sucesso na Arena!');
           }
         } catch (apiErr: any) {
-          setPairingStatusMsg(`Hardware conectado, mas pendente de autorização na API: ${apiErr.message}`);
+          setIsPairingAuthorized(false);
+          setPairingStatusMsg(
+            `Hardware conectado localmente (Aviso API: ${apiErr.message})`
+          );
         }
+      } else {
+        setIsPairingAuthorized(false);
+        setPairingStatusMsg(
+          activeMode === 'REMOTE_GATEWAY'
+            ? `Não foi possível conectar ao PC em ${hostIpInput}:3001. Verifique se o PC e o celular estão no mesmo Wi-Fi.`
+            : 'Falha ao abrir porta serial.'
+        );
       }
     } catch (err: any) {
       setPairingStatusMsg(`Falha na conexão: ${err?.message || err}`);
@@ -152,29 +160,55 @@ export function HardwareView() {
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.surface, borderColor: theme.border, padding: cardPadding }]}>
+    <View
+      style={[
+        styles.container,
+        {
+          backgroundColor: theme.surface,
+          borderColor: theme.border,
+          padding: cardPadding,
+        },
+      ]}
+    >
       <View style={styles.headerRow}>
         <CpuIcon size={20} color={theme.primary} />
-        <Text style={[styles.title, { color: theme.text, fontSize: fs(17) }]}>
+        <Text
+          style={[
+            styles.title,
+            { color: theme.text, fontSize: isMobile ? fs(15.5) : fs(17) },
+          ]}
+        >
           Comunicação IoT & Pareamento (RF05 / RF07 / RF08)
         </Text>
       </View>
-      <Text style={[styles.subtitle, { color: theme.textSecondary, fontSize: fs(12.5) }]}>
-        Conexão física via Web Serial USB (115200 bps) ou Simulador Virtual com chave autorizada.
+      <Text style={[styles.subtitle, { color: theme.textSecondary, fontSize: fs(12) }]}>
+        Conexão física via Web Serial USB (115200 bps), Ponte Celular WebSocket ou Simulador Virtual.
       </Text>
 
-      {/* Seletor de Modo */}
+      {/* Seletor de Modo Responsivo */}
       <View style={styles.modeTabsRow}>
         <TouchableOpacity
           activeOpacity={0.8}
           style={[
             styles.modeTab,
-            activeMode === 'MOCK' && { backgroundColor: theme.primary, borderColor: theme.primaryDark },
+            activeMode === 'MOCK' && {
+              backgroundColor: theme.primary,
+              borderColor: theme.primaryDark,
+            },
           ]}
           onPress={() => handleSelectMode('MOCK')}
         >
-          <Text style={[styles.modeTabText, { color: activeMode === 'MOCK' ? '#FFF' : theme.textSecondary, fontSize: fs(11.5) }]}>
-            Simulador Digital
+          <Text
+            numberOfLines={1}
+            style={[
+              styles.modeTabText,
+              {
+                color: activeMode === 'MOCK' ? '#FFF' : theme.textSecondary,
+                fontSize: isMobile ? fs(11) : fs(11.5),
+              },
+            ]}
+          >
+            {isMobile ? 'Simulador' : 'Simulador Digital'}
           </Text>
         </TouchableOpacity>
 
@@ -182,12 +216,24 @@ export function HardwareView() {
           activeOpacity={0.8}
           style={[
             styles.modeTab,
-            activeMode === 'WEB_SERIAL' && { backgroundColor: theme.primary, borderColor: theme.primaryDark },
+            activeMode === 'WEB_SERIAL' && {
+              backgroundColor: theme.primary,
+              borderColor: theme.primaryDark,
+            },
           ]}
           onPress={() => handleSelectMode('WEB_SERIAL')}
         >
-          <Text style={[styles.modeTabText, { color: activeMode === 'WEB_SERIAL' ? '#FFF' : theme.textSecondary, fontSize: fs(11.5) }]}>
-            Arduino Físico (USB PC)
+          <Text
+            numberOfLines={1}
+            style={[
+              styles.modeTabText,
+              {
+                color: activeMode === 'WEB_SERIAL' ? '#FFF' : theme.textSecondary,
+                fontSize: isMobile ? fs(11) : fs(11.5),
+              },
+            ]}
+          >
+            {isMobile ? 'Arduino USB' : 'Arduino Físico (USB PC)'}
           </Text>
         </TouchableOpacity>
 
@@ -195,12 +241,24 @@ export function HardwareView() {
           activeOpacity={0.8}
           style={[
             styles.modeTab,
-            activeMode === 'REMOTE_GATEWAY' && { backgroundColor: theme.primary, borderColor: theme.primaryDark },
+            activeMode === 'REMOTE_GATEWAY' && {
+              backgroundColor: theme.primary,
+              borderColor: theme.primaryDark,
+            },
           ]}
           onPress={() => handleSelectMode('REMOTE_GATEWAY')}
         >
-          <Text style={[styles.modeTabText, { color: activeMode === 'REMOTE_GATEWAY' ? '#FFF' : theme.textSecondary, fontSize: fs(11.5) }]}>
-            📱 Celular (Ponte PC)
+          <Text
+            numberOfLines={1}
+            style={[
+              styles.modeTabText,
+              {
+                color: activeMode === 'REMOTE_GATEWAY' ? '#FFF' : theme.textSecondary,
+                fontSize: isMobile ? fs(11) : fs(11.5),
+              },
+            ]}
+          >
+            {isMobile ? '📱 Ponte PC' : '📱 Celular (Ponte PC)'}
           </Text>
         </TouchableOpacity>
       </View>
@@ -215,33 +273,86 @@ export function HardwareView() {
         </View>
       )}
 
-      {/* Dica explicativa para o modo Celular */}
+      {/* Dica explicativa e configuração de IP para o modo Celular */}
       {activeMode === 'REMOTE_GATEWAY' && (
         <View style={[styles.gatewayBanner, { backgroundColor: '#EFF6FF', borderColor: '#93C5FD' }]}>
           <WifiIcon size={16} color="#1D4ED8" />
-          <Text style={[styles.gatewayBannerText, { color: '#1E40AF', fontSize: fs(12) }]}>
+          <Text style={[styles.gatewayBannerText, { color: '#1E40AF', fontSize: fs(11.5) }]}>
             {isConnected
-              ? `Conectado ao PC da Arena! Comandos enviados do celular irão para o Arduino e os impactos dos sensores serão recebidos aqui.`
-              : `Toque em "Conectar ao PC" abaixo para parear com o PC onde o Arduino está conectado via USB.`}
+              ? `Conectado ao PC da Arena (${hostIpInput}:3001)! Comandos enviados do celular são transmitidos em tempo real via WebSocket.`
+              : `Toque em "Conectar ao PC da Arena" abaixo para parear seu celular com o servidor no PC (${hostIpInput}:3001).`}
           </Text>
         </View>
       )}
 
       {/* Caixa de Conexão e Token RF05 */}
-      <View style={[styles.connectCard, { backgroundColor: theme.surfaceMint, borderColor: theme.primaryBorder }]}>
+      <View
+        style={[
+          styles.connectCard,
+          { backgroundColor: theme.surfaceMint, borderColor: theme.primaryBorder },
+        ]}
+      >
         <View style={styles.deviceInfoRow}>
-          <View style={[styles.dot, { backgroundColor: isConnected ? '#22C55E' : '#EF4444' }]} />
-          <Text style={[styles.deviceInfoText, { color: theme.text, fontSize: fs(13) }]}>
-            {isConnected ? hardwareManager.deviceName : 'Nenhum controlador serial ativo'}
+          <View
+            style={[
+              styles.dot,
+              { backgroundColor: isConnected ? '#22C55E' : '#EF4444' },
+            ]}
+          />
+          <Text
+            style={[
+              styles.deviceInfoText,
+              { color: theme.text, fontSize: fs(12.5), flex: 1 },
+            ]}
+          >
+            {isConnected
+              ? hardwareManager.deviceName || 'Conectado'
+              : 'Nenhum controlador serial ativo'}
           </Text>
         </View>
+
+        {activeMode === 'REMOTE_GATEWAY' && (
+          <View style={styles.tokenRow}>
+            <Text style={[styles.tokenLabel, { color: theme.textSecondary, fontSize: fs(11) }]}>
+              IP do PC da Arena na Rede Wi-Fi (Porta 3001):
+            </Text>
+            <TextInput
+              style={[
+                styles.tokenInput,
+                {
+                  backgroundColor: theme.surface,
+                  borderColor: theme.borderNeutral,
+                  color: theme.text,
+                  fontSize: fs(12),
+                },
+              ]}
+              value={hostIpInput}
+              onChangeText={(val) => {
+                setHostIpInput(val);
+                setCustomApiHost(val);
+              }}
+              placeholder="Ex: 192.168.15.160"
+              placeholderTextColor={theme.textMuted}
+              autoCapitalize="none"
+              keyboardType="numbers-and-punctuation"
+            />
+          </View>
+        )}
 
         <View style={styles.tokenRow}>
           <Text style={[styles.tokenLabel, { color: theme.textSecondary, fontSize: fs(11) }]}>
             Chave/Token de Pareamento IoT (RF05):
           </Text>
           <TextInput
-            style={[styles.tokenInput, { backgroundColor: theme.surface, borderColor: theme.borderNeutral, color: theme.text, fontSize: fs(11) }]}
+            style={[
+              styles.tokenInput,
+              {
+                backgroundColor: theme.surface,
+                borderColor: theme.borderNeutral,
+                color: theme.text,
+                fontSize: fs(11.5),
+              },
+            ]}
             value={pairingToken}
             onChangeText={setPairingToken}
             secureTextEntry
@@ -250,9 +361,20 @@ export function HardwareView() {
 
         <TouchableOpacity
           activeOpacity={0.85}
-          style={[styles.connectButton, { backgroundColor: isConnected ? theme.danger : theme.primary }]}
+          style={[
+            styles.connectButton,
+            { backgroundColor: isConnected ? theme.danger : theme.primary },
+          ]}
           disabled={isConnecting}
-          onPress={isConnected ? () => hardwareManager.disconnect() : handleConnectHardware}
+          onPress={
+            isConnected
+              ? async () => {
+                  await hardwareManager.disconnect();
+                  setIsConnected(false);
+                  setPairingStatusMsg('Dispositivo desconectado.');
+                }
+              : handleConnectHardware
+          }
         >
           {isConnecting ? (
             <ActivityIndicator size="small" color="#FFF" />
@@ -268,7 +390,15 @@ export function HardwareView() {
         </TouchableOpacity>
 
         {pairingStatusMsg && (
-          <Text style={[styles.statusMsg, { color: isPairingAuthorized ? theme.primaryDark : theme.warning, fontSize: fs(11.5) }]}>
+          <Text
+            style={[
+              styles.statusMsg,
+              {
+                color: isPairingAuthorized ? theme.primaryDark : theme.warning,
+                fontSize: fs(11.5),
+              },
+            ]}
+          >
             {pairingStatusMsg}
           </Text>
         )}
@@ -276,19 +406,29 @@ export function HardwareView() {
 
       {/* Diagnóstico Individual dos 5 Sensores Piezoelétricos (RF05, RF07) */}
       <View style={styles.sensorStatusSection}>
-        <Text style={[styles.sectionTitle, { color: theme.text, fontSize: fs(13) }]}>
+        <Text style={[styles.sectionTitle, { color: theme.text, fontSize: fs(12.5) }]}>
           Sensores Piezoelétricos • Limiares ADC de Calibração (A0..A4)
         </Text>
         <View style={styles.sensorsGrid}>
           {piezoSensors.map((thresh, idx) => (
-            <View key={idx} style={[styles.sensorBadge, { backgroundColor: theme.surfaceMuted, borderColor: theme.borderNeutral }]}>
-              <Text style={[styles.sensorName, { color: theme.primaryDark, fontSize: fs(11.5) }]}>
+            <View
+              key={idx}
+              style={[
+                styles.sensorBadge,
+                isMobile && { minWidth: '30%', paddingVertical: 6, paddingHorizontal: 6 },
+                {
+                  backgroundColor: theme.surfaceMuted,
+                  borderColor: theme.borderNeutral,
+                },
+              ]}
+            >
+              <Text style={[styles.sensorName, { color: theme.primaryDark, fontSize: fs(11) }]}>
                 Alvo #{idx + 1}
               </Text>
-              <Text style={[styles.sensorThresh, { color: theme.text, fontSize: fs(12) }]}>
+              <Text style={[styles.sensorThresh, { color: theme.text, fontSize: fs(11.5) }]}>
                 {thresh} ADC
               </Text>
-              <Text style={[styles.sensorStatus, { color: '#16A34A', fontSize: fs(10) }]}>
+              <Text style={[styles.sensorStatus, { color: '#16A34A', fontSize: fs(9.5) }]}>
                 Ativo / OK
               </Text>
             </View>
@@ -297,7 +437,12 @@ export function HardwareView() {
       </View>
 
       {/* Monitor de Log do Protocolo Serial */}
-      <View style={[styles.consoleCard, { backgroundColor: theme.terminalBg, borderColor: theme.borderNeutral }]}>
+      <View
+        style={[
+          styles.consoleCard,
+          { backgroundColor: theme.terminalBg, borderColor: theme.borderNeutral },
+        ]}
+      >
         <View style={styles.consoleHeader}>
           <TerminalIcon size={14} color={theme.terminalText} />
           <Text style={[styles.consoleTitle, { color: theme.terminalText, fontSize: fs(11.5) }]}>
@@ -307,7 +452,21 @@ export function HardwareView() {
 
         <ScrollView style={styles.consoleScroll} nestedScrollEnabled>
           {logs.slice(-25).map((log) => (
-            <Text key={log.id} style={[styles.consoleLine, { color: log.direction === 'TX' ? '#60A5FA' : log.direction === 'ERR' ? '#F87171' : theme.terminalText, fontSize: fs(11) }]}>
+            <Text
+              key={log.id}
+              style={[
+                styles.consoleLine,
+                {
+                  color:
+                    log.direction === 'TX'
+                      ? '#60A5FA'
+                      : log.direction === 'ERR'
+                        ? '#F87171'
+                        : theme.terminalText,
+                  fontSize: fs(10.5),
+                },
+              ]}
+            >
               [{log.timestamp}] [{log.direction}] {log.message}
             </Text>
           ))}
@@ -315,14 +474,25 @@ export function HardwareView() {
 
         <View style={styles.commandRow}>
           <TextInput
-            style={[styles.cmdInput, { color: theme.terminalText, borderColor: '#334155', fontSize: fs(11) }]}
-            placeholder='Ex: {"cmd":"PING"} ou {"cmd":"START","tgt":1,"time":3000}'
+            style={[
+              styles.cmdInput,
+              {
+                color: theme.terminalText,
+                borderColor: '#334155',
+                fontSize: fs(11),
+              },
+            ]}
+            placeholder='Ex: {"cmd":"PING"} ou !EMG'
             placeholderTextColor="#64748B"
             value={customCommand}
             onChangeText={setCustomCommand}
             onSubmitEditing={handleSendCustomCommand}
           />
-          <TouchableOpacity activeOpacity={0.8} style={[styles.sendBtn, { backgroundColor: theme.primary }]} onPress={handleSendCustomCommand}>
+          <TouchableOpacity
+            activeOpacity={0.8}
+            style={[styles.sendBtn, { backgroundColor: theme.primary }]}
+            onPress={handleSendCustomCommand}
+          >
             <Text style={[styles.sendBtnText, { fontSize: fs(11.5) }]}>Enviar</Text>
           </TouchableOpacity>
         </View>
@@ -344,25 +514,30 @@ const styles = StyleSheet.create({
   },
   title: {
     fontWeight: '700',
+    flex: 1,
   },
   subtitle: {
     marginBottom: 12,
+    lineHeight: 17,
   },
   modeTabsRow: {
     flexDirection: 'row',
-    gap: 8,
+    gap: 6,
     marginBottom: 12,
   },
   modeTab: {
     flex: 1,
     paddingVertical: 9,
+    paddingHorizontal: 6,
     borderRadius: 8,
     borderWidth: 1,
     borderColor: '#CBD5E1',
     alignItems: 'center',
+    justifyContent: 'center',
   },
   modeTabText: {
-    fontWeight: '600',
+    fontWeight: '700',
+    textAlign: 'center',
   },
   gatewayBanner: {
     flexDirection: 'row',
@@ -404,13 +579,13 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   tokenInput: {
-    paddingHorizontal: 8,
-    paddingVertical: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
     borderRadius: 6,
     borderWidth: 1,
   },
   connectButton: {
-    paddingVertical: 10,
+    paddingVertical: 11,
     borderRadius: 8,
     alignItems: 'center',
     marginTop: 4,
@@ -422,6 +597,7 @@ const styles = StyleSheet.create({
   statusMsg: {
     fontWeight: '600',
     marginTop: 2,
+    lineHeight: 16,
   },
   sensorStatusSection: {
     marginBottom: 14,
@@ -467,6 +643,7 @@ const styles = StyleSheet.create({
   },
   consoleTitle: {
     fontWeight: '700',
+    flex: 1,
   },
   consoleScroll: {
     height: 140,
@@ -483,13 +660,13 @@ const styles = StyleSheet.create({
   cmdInput: {
     flex: 1,
     paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingVertical: 6,
     borderRadius: 6,
     borderWidth: 1,
     fontFamily: 'monospace',
   },
   sendBtn: {
-    paddingHorizontal: 12,
+    paddingHorizontal: 14,
     borderRadius: 6,
     justifyContent: 'center',
   },

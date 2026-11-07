@@ -37,6 +37,7 @@ import {
   EyeIcon,
   CheckCircleIcon,
   LockIcon,
+  CloseIcon,
 } from './Icons';
 
 interface ManagementViewProps {
@@ -479,9 +480,44 @@ export function ManagementView({
               { backgroundColor: theme.bg, borderColor: theme.primaryBorder },
             ]}
           >
-            <Text style={{ color: theme.primaryDark, fontWeight: '800', fontSize: fs(13), marginBottom: 10 }}>
-              Personalização Esportiva & Privacidade do Praticante (RF02)
-            </Text>
+            <View
+              style={{
+                flexDirection: 'row',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: 10,
+                gap: 8,
+              }}
+            >
+              <Text
+                style={{
+                  color: theme.primaryDark,
+                  fontWeight: '800',
+                  fontSize: fs(13),
+                  flex: 1,
+                }}
+              >
+                Personalização Esportiva & Privacidade do Praticante (RF02)
+              </Text>
+              <TouchableOpacity
+                accessibilityRole="button"
+                accessibilityLabel="Fechar editor de perfil"
+                onPress={() => setShowProfileEditor(false)}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                style={{
+                  width: 28,
+                  height: 28,
+                  borderRadius: 14,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  backgroundColor: theme.surface,
+                  borderWidth: 1,
+                  borderColor: theme.borderNeutral,
+                }}
+              >
+                <CloseIcon size={14} color={theme.textSecondary} />
+              </TouchableOpacity>
+            </View>
 
             <View style={[styles.quickFormRow, isMobile && { flexDirection: 'column', alignItems: 'stretch' }]}>
               <TextInput

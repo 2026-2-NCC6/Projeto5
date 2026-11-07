@@ -13,7 +13,7 @@ import {
 } from '../../../packages/shared/src/contracts/drills';
 import { useAccessibility } from '../context/AccessibilityContext';
 import { useResponsive } from './useResponsive';
-import { PlayIcon, TargetIcon } from './Icons';
+import { PlayIcon, TargetIcon, AwardIcon } from './Icons';
 import { EmergencyStopButton } from './EmergencyStopButton';
 
 interface TargetBoardProps {
@@ -41,8 +41,6 @@ interface TargetBoardProps {
 export const TargetBoard: React.FC<TargetBoardProps> = ({
   activeTarget,
   ledCount,
-  remainingMs,
-  totalMs,
   lastHitTarget,
   lastHitResult,
   isKidsMode,
@@ -60,7 +58,7 @@ export const TargetBoard: React.FC<TargetBoardProps> = ({
   onViewSummary,
 }) => {
   const { theme, fs } = useAccessibility();
-  const { isMobile, isSmallPhone, cardPadding } = useResponsive();
+  const { isMobile, cardPadding } = useResponsive();
 
   const isPlaying =
     gameState === GameState.RUNNING_TARGET_ACTIVE ||
@@ -101,6 +99,7 @@ export const TargetBoard: React.FC<TargetBoardProps> = ({
         style={[
           styles.targetCard,
           isCenter && styles.centerTargetCard,
+          isMobile && { minHeight: isCenter ? 76 : 70, paddingVertical: 8, paddingHorizontal: 8 },
           {
             backgroundColor: bgColor,
             borderColor,
@@ -115,7 +114,7 @@ export const TargetBoard: React.FC<TargetBoardProps> = ({
               styles.targetNumber,
               {
                 color: isActive ? theme.primaryDark : theme.textMuted,
-                fontSize: fs(12),
+                fontSize: fs(11.5),
               },
             ]}
           >
@@ -150,7 +149,7 @@ export const TargetBoard: React.FC<TargetBoardProps> = ({
             styles.targetTactical,
             {
               color: theme.textMuted,
-              fontSize: isMobile ? fs(9) : fs(10),
+              fontSize: isMobile ? fs(9.5) : fs(10),
             },
           ]}
         >
@@ -188,16 +187,25 @@ export const TargetBoard: React.FC<TargetBoardProps> = ({
         {
           backgroundColor: theme.surface,
           borderColor: theme.border,
-          padding: cardPadding,
+          padding: isMobile ? 12 : cardPadding,
+          marginBottom: isMobile ? 10 : 14,
         },
       ]}
     >
       {/* Topo do Board: Modo Kids Toggle */}
       <View style={styles.topBar}>
         <View style={styles.courtTitleRow}>
-          <TargetIcon size={18} color={theme.primary} />
-          <Text style={[styles.courtTitle, { color: theme.text, fontSize: fs(15) }]}>
-            Painel da Quadra • 5 Sensores Piezoelétricos (RF07/08)
+          <TargetIcon size={17} color={theme.primary} />
+          <Text
+            numberOfLines={1}
+            style={[
+              styles.courtTitle,
+              { color: theme.text, fontSize: isMobile ? fs(13.5) : fs(15) },
+            ]}
+          >
+            {isMobile
+              ? 'Painel da Quadra • 5 Sensores'
+              : 'Painel da Quadra • 5 Sensores Piezoelétricos (RF07/08)'}
           </Text>
         </View>
 
@@ -213,7 +221,7 @@ export const TargetBoard: React.FC<TargetBoardProps> = ({
             <Text
               style={[
                 styles.modePillText,
-                { color: !isKidsMode ? '#FFF' : theme.textSecondary, fontSize: fs(11) },
+                { color: !isKidsMode ? '#FFF' : theme.textSecondary, fontSize: fs(10.5) },
               ]}
             >
               Pro / Adulto
@@ -231,7 +239,7 @@ export const TargetBoard: React.FC<TargetBoardProps> = ({
             <Text
               style={[
                 styles.modePillText,
-                { color: isKidsMode ? '#FFF' : theme.textSecondary, fontSize: fs(11) },
+                { color: isKidsMode ? '#FFF' : theme.textSecondary, fontSize: fs(10.5) },
               ]}
             >
               ⭐ Kids Lúdico
@@ -247,8 +255,8 @@ export const TargetBoard: React.FC<TargetBoardProps> = ({
           {renderSensorModule(2)}
         </View>
 
-        <View style={[styles.courtCenterRow, { marginVertical: isMobile ? 8 : 12 }]}>
-          <View style={{ width: isMobile ? '70%' : '50%' }}>
+        <View style={[styles.courtCenterRow, { marginVertical: isMobile ? 6 : 12 }]}>
+          <View style={{ width: isMobile ? '72%' : '50%' }}>
             {renderSensorModule(5, true)}
           </View>
         </View>
@@ -263,38 +271,62 @@ export const TargetBoard: React.FC<TargetBoardProps> = ({
       <View
         style={[
           styles.footerControls,
-          isMobile && { flexDirection: 'column', alignItems: 'stretch', gap: 8 },
+          isMobile && { flexDirection: 'column', alignItems: 'stretch', gap: 8, marginTop: 10 },
         ]}
       >
         {!isPlaying && !isPaused ? (
-          <TouchableOpacity
-            accessibilityRole="button"
-            accessibilityLabel="Iniciar Sessão de Treino"
-            activeOpacity={0.85}
-            style={[
-              styles.startButton,
-              isMobile && { width: '100%', minWidth: 0 },
-              {
-                backgroundColor: theme.primary,
-                opacity: gameState === GameState.COUNTDOWN ? 0.65 : 1,
-              },
-            ]}
-            disabled={gameState === GameState.COUNTDOWN}
-            onPress={onStartSession}
-          >
-            <PlayIcon size={15} color="#FFFFFF" />
-            <Text style={[styles.startButtonText, { fontSize: fs(14) }]}>
-              {gameState === GameState.COUNTDOWN
-                ? `Iniciando em ${countdownValue}...`
-                : 'Iniciar Sessão de Treino'}
-            </Text>
-          </TouchableOpacity>
+          <View style={[styles.idleActionsWrap, isMobile && { width: '100%' }]}>
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel="Iniciar Sessão de Treino"
+              activeOpacity={0.85}
+              style={[
+                styles.startButton,
+                isMobile && { width: '100%', minWidth: 0 },
+                {
+                  backgroundColor: theme.primary,
+                  opacity: gameState === GameState.COUNTDOWN ? 0.65 : 1,
+                },
+              ]}
+              disabled={gameState === GameState.COUNTDOWN}
+              onPress={onStartSession}
+            >
+              <PlayIcon size={15} color="#FFFFFF" />
+              <Text style={[styles.startButtonText, { fontSize: fs(14) }]}>
+                {gameState === GameState.COUNTDOWN
+                  ? `Iniciando em ${countdownValue}...`
+                  : 'Iniciar Sessão de Treino'}
+              </Text>
+            </TouchableOpacity>
+
+            {gameState === GameState.COMPLETED && (
+              <TouchableOpacity
+                accessibilityRole="button"
+                activeOpacity={0.85}
+                style={[
+                  styles.summaryBtn,
+                  isMobile && { width: '100%' },
+                  { backgroundColor: theme.surfaceMint, borderColor: theme.primaryBorder },
+                ]}
+                onPress={onViewSummary}
+              >
+                <AwardIcon size={15} color={theme.primaryDark} />
+                <Text style={{ color: theme.primaryDark, fontWeight: '800', fontSize: fs(13) }}>
+                  Ver Resumo da Sessão
+                </Text>
+              </TouchableOpacity>
+            )}
+          </View>
         ) : (
-          <View style={styles.runningControlsRow}>
+          <View style={[styles.runningControlsRow, isMobile && { width: '100%' }]}>
             {isPlaying && onPauseSession && (
               <TouchableOpacity
                 activeOpacity={0.8}
-                style={[styles.pauseBtn, { backgroundColor: theme.warningSoft, borderColor: theme.warningBorder }]}
+                style={[
+                  styles.pauseBtn,
+                  isMobile && { flex: 1, alignItems: 'center' },
+                  { backgroundColor: theme.warningSoft, borderColor: theme.warningBorder },
+                ]}
                 onPress={onPauseSession}
               >
                 <Text style={[styles.pauseBtnText, { color: theme.warning, fontSize: fs(13) }]}>
@@ -306,11 +338,15 @@ export const TargetBoard: React.FC<TargetBoardProps> = ({
             {isPaused && onResumeSession && (
               <TouchableOpacity
                 activeOpacity={0.8}
-                style={[styles.resumeBtn, { backgroundColor: theme.primary, borderColor: theme.primaryDark }]}
+                style={[
+                  styles.resumeBtn,
+                  isMobile && { flex: 1, alignItems: 'center' },
+                  { backgroundColor: theme.primary, borderColor: theme.primaryDark },
+                ]}
                 onPress={onResumeSession}
               >
                 <Text style={[styles.resumeBtnText, { color: '#FFF', fontSize: fs(13) }]}>
-                  ▶️ Retomar Treino
+                  ▶️ Retomar
                 </Text>
               </TouchableOpacity>
             )}
@@ -318,7 +354,11 @@ export const TargetBoard: React.FC<TargetBoardProps> = ({
             {onAbortSession && (
               <TouchableOpacity
                 activeOpacity={0.8}
-                style={[styles.abortBtn, { borderColor: theme.borderNeutral }]}
+                style={[
+                  styles.abortBtn,
+                  isMobile && { flex: 1, alignItems: 'center' },
+                  { borderColor: theme.borderNeutral },
+                ]}
                 onPress={() => onAbortSession()}
               >
                 <Text style={[styles.abortBtnText, { color: theme.textSecondary, fontSize: fs(13) }]}>
@@ -345,7 +385,6 @@ const styles = StyleSheet.create({
   container: {
     borderRadius: 14,
     borderWidth: 1.5,
-    marginBottom: 14,
   },
   topBar: {
     flexDirection: 'row',
@@ -353,15 +392,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexWrap: 'wrap',
     gap: 8,
-    marginBottom: 12,
+    marginBottom: 10,
   },
   courtTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
+    flexShrink: 1,
   },
   courtTitle: {
     fontWeight: '700',
+    flexShrink: 1,
   },
   modeToggleRow: {
     flexDirection: 'row',
@@ -369,16 +410,16 @@ const styles = StyleSheet.create({
   },
   modePill: {
     paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingVertical: 5,
     borderRadius: 99,
     borderWidth: 1,
     borderColor: '#E2E8F0',
   },
   modePillText: {
-    fontWeight: '600',
+    fontWeight: '700',
   },
   courtArea: {
-    paddingVertical: 4,
+    paddingVertical: 2,
   },
   courtGridRow: {
     flexDirection: 'row',
@@ -424,7 +465,7 @@ const styles = StyleSheet.create({
   ledRingRow: {
     flexDirection: 'row',
     gap: 3,
-    marginTop: 6,
+    marginTop: 5,
   },
   ledDot: {
     width: 6,
@@ -438,19 +479,34 @@ const styles = StyleSheet.create({
     marginTop: 14,
     gap: 10,
   },
+  idleActionsWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
   startButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    paddingVertical: 11,
+    paddingVertical: 12,
     paddingHorizontal: 18,
     borderRadius: 10,
     minWidth: 220,
   },
   startButtonText: {
     color: '#FFF',
-    fontWeight: '700',
+    fontWeight: '800',
+  },
+  summaryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+    paddingVertical: 11,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    borderWidth: 1,
   },
   runningControlsRow: {
     flexDirection: 'row',
@@ -458,7 +514,7 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
   },
   pauseBtn: {
-    paddingVertical: 9,
+    paddingVertical: 10,
     paddingHorizontal: 14,
     borderRadius: 8,
     borderWidth: 1.5,
@@ -467,7 +523,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   resumeBtn: {
-    paddingVertical: 9,
+    paddingVertical: 10,
     paddingHorizontal: 14,
     borderRadius: 8,
     borderWidth: 1.5,
@@ -476,7 +532,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   abortBtn: {
-    paddingVertical: 9,
+    paddingVertical: 10,
     paddingHorizontal: 14,
     borderRadius: 8,
     borderWidth: 1,

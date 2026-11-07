@@ -1,13 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
+  Platform,
   SafeAreaView,
   ScrollView,
+  StatusBar as RNStatusBar,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
-  StatusBar,
 } from 'react-native';
+import { StatusBar } from 'expo-status-bar';
 import { useGameEngine } from './src/fsm/useGameEngine';
 import { TargetBoard } from './src/components/TargetBoard';
 import { ScoreHUD } from './src/components/ScoreHUD';
@@ -149,7 +151,12 @@ function MainWorkspace() {
 
   const firstName = user ? user.name.split(' ')[0] : 'Visitante';
   const userInitials = user ? getInitials(user.name) : 'VI';
-  const hwBadge = hardwareManager.mode === 'WEB_SERIAL' ? 'USB' : 'MOCK';
+  const hwBadge =
+    hardwareManager.mode === 'WEB_SERIAL'
+      ? 'USB'
+      : hardwareManager.mode === 'REMOTE_GATEWAY'
+      ? 'LAN'
+      : 'MOCK';
 
   const tabs: Array<{
     key: AppTab;
@@ -197,7 +204,7 @@ function MainWorkspace() {
 
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.bg }]}>
-      <StatusBar barStyle="dark-content" backgroundColor={theme.surface} />
+      <StatusBar style="dark" />
 
       {/* TOP HEADER RESPONSIVO (Compacto em Celular, Completo em Web/Tablet) */}
       <View
@@ -207,7 +214,12 @@ function MainWorkspace() {
             backgroundColor: theme.surface,
             borderBottomColor: theme.border,
             paddingHorizontal: pagePadding,
-            paddingTop: isMobile ? 10 : 14,
+            paddingTop:
+              Platform.OS === 'android'
+                ? (RNStatusBar.currentHeight || 28) + 6
+                : isMobile
+                ? 10
+                : 14,
             paddingBottom: isMobile ? 8 : 10,
           },
         ]}
@@ -639,16 +651,6 @@ function MainWorkspace() {
                   </View>
                 </TouchableOpacity>
               </View>
-              <SessionPrepModal
-                visible={showPrepModal}
-                drill={state.selectedDrill}
-                isKidsMode={state.isKidsMode}
-                onConfirmStart={() => {
-                  setShowPrepModal(false);
-                  actions.startSession();
-                }}
-                onCancel={() => setShowPrepModal(false)}
-              />
             </View>
           )}
 
@@ -791,6 +793,7 @@ function MainWorkspace() {
                     selectedDrill={state.selectedDrill}
                     isKidsMode={state.isKidsMode}
                     onSelectDrill={actions.setSelectedDrill}
+                    onStartDrill={() => setShowPrepModal(true)}
                   />
                 </View>
               </View>
@@ -888,6 +891,18 @@ function MainWorkspace() {
           })}
         </View>
       )}
+
+      {/* MODAL GLOBAL DE PREPARAÇÃO E SEGURANÇA DE SESSÃO (Celular, Tablet e Web) */}
+      <SessionPrepModal
+        visible={showPrepModal}
+        drill={state.selectedDrill}
+        isKidsMode={state.isKidsMode}
+        onConfirmStart={() => {
+          setShowPrepModal(false);
+          actions.startSession();
+        }}
+        onCancel={() => setShowPrepModal(false)}
+      />
     </SafeAreaView>
   );
 }

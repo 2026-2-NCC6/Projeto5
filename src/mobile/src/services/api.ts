@@ -38,41 +38,90 @@ import {
  * 3. No Expo Go / React Native nativo (Android/iOS), extrai automaticamente o IP da máquina host via `SourceCode.scriptURL`,
  *    com fallback para `10.0.2.2` (emulador Android) ou `localhost` (simulador iOS).
  */
-function resolveApiBaseUrl(): string {
+let customHostIpOverride: string | null = null;
+
+function detectMobileLanIp(): string | null {
+  try {
+    const sc = NativeModules?.SourceCode;
+    const scriptURL: string | undefined =
+      sc?.scriptURL || (typeof sc?.getConstants === 'function' ? sc.getConstants()?.scriptURL : undefined);
+    if (scriptURL) {
+      const match = scriptURL.match(/^https?:\/\/([^/:]+)(:\d+)?/);
+      if (match && match[1] && match[1] !== 'localhost' && match[1] !== '127.0.0.1') {
+        return match[1];
+      }
+    }
+  } catch {}
+
+  try {
+    const stack = new Error().stack || '';
+    const stackMatch = stack.match(/https?:\/\/(\d+\.\d+\.\d+\.\d+)(:\d+)?/);
+    if (stackMatch && stackMatch[1] && stackMatch[1] !== '127.0.0.1') {
+      return stackMatch[1];
+    }
+  } catch {}
+
+  return null;
+}
+
+/**
+ * Resolve dinamicamente a URL da API REST:
+ * 1. Respeita override manual de IP configurado na aba IoT;
+ * 2. Na Web, acompanha o hostname atual (ex.: localhost ou IP da rede local);
+ * 3. No Expo Go / React Native nativo (Android/iOS), extrai automaticamente o IP LAN do PC via Metro/SourceCode
+ *    ou utiliza `EXPO_PUBLIC_API_URL` (ignorando localhost no celular), com fallback para o IP da rede local.
+ */
+export function resolveApiBaseUrl(): string {
+  if (customHostIpOverride) {
+    const clean = customHostIpOverride.trim().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+    const hostOnly = clean.includes(':') ? clean : `${clean}:3001`;
+    return `http://${hostOnly}/api/v1`;
+  }
+
   const envUrl =
     typeof process !== 'undefined' && process.env?.EXPO_PUBLIC_API_URL
       ? process.env.EXPO_PUBLIC_API_URL.trim().replace(/\/+$/, '')
       : '';
 
-  if (envUrl) {
-    return envUrl;
-  }
-
   if (Platform.OS === 'web' && typeof window !== 'undefined' && window.location?.hostname) {
+    if (envUrl && envUrl.startsWith('https://')) {
+      return envUrl;
+    }
     const host = window.location.hostname;
     return `http://${host}:3001/api/v1`;
   }
 
-  try {
-    const scriptURL: string | undefined = NativeModules?.SourceCode?.scriptURL;
-    if (scriptURL) {
-      const match = scriptURL.match(/^https?:\/\/([^/:]+)(:\d+)?/);
-      if (match && match[1] && match[1] !== 'localhost' && match[1] !== '127.0.0.1') {
-        return `http://${match[1]}:3001/api/v1`;
-      }
-    }
-  } catch {
-    // Ignora falha de introspecção de módulo nativo
+  const lanIp = detectMobileLanIp();
+  if (lanIp) {
+    return `http://${lanIp}:3001/api/v1`;
   }
 
-  if (Platform.OS === 'android') {
-    return 'http://10.0.2.2:3001/api/v1';
+  if (envUrl && !envUrl.includes('localhost') && !envUrl.includes('127.0.0.1')) {
+    return envUrl;
   }
 
-  return 'http://localhost:3001/api/v1';
+  // Fallback para o IP da máquina host na rede local Wi-Fi
+  return 'http://192.168.15.160:3001/api/v1';
 }
 
-export const API_BASE_URL = resolveApiBaseUrl();
+export let API_BASE_URL = resolveApiBaseUrl();
+
+export function getApiBaseUrl(): string {
+  API_BASE_URL = resolveApiBaseUrl();
+  return API_BASE_URL;
+}
+
+export function setCustomApiHost(hostOrIp: string | null): string {
+  customHostIpOverride = hostOrIp && hostOrIp.trim() ? hostOrIp.trim() : null;
+  API_BASE_URL = resolveApiBaseUrl();
+  return API_BASE_URL;
+}
+
+export function getDetectedHostIp(): string {
+  const base = getApiBaseUrl();
+  const m = base.match(/^https?:\/\/([^/:]+)/);
+  return m && m[1] ? m[1] : '192.168.15.160';
+}
 
 const TOKEN_STORAGE_KEY = '@smart_tennis_token';
 
@@ -170,7 +219,8 @@ async function request<T>(
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+  const baseUrl = getApiBaseUrl();
+  const response = await fetch(`${baseUrl}${endpoint}`, {
     ...options,
     headers,
   });

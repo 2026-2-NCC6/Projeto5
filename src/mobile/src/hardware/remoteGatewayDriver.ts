@@ -49,8 +49,11 @@ export class RemoteGatewayDriver implements ISerialDriver {
 
         this.ws.onopen = () => {
           clearTimeout(timeout);
+          this.isConnected = true;
+          this.deviceName = 'Ponte PC Gateway (WebSocket)';
+          this.notifyStatus(true, this.deviceName);
           this.notifyLog('INFO', 'Conexão WebSocket estabelecida com o servidor!');
-          
+
           // Registra como controle remoto (celular)
           this.sendWsPayload({
             type: 'REGISTER',
@@ -131,22 +134,20 @@ export class RemoteGatewayDriver implements ISerialDriver {
         if (!state) return;
 
         this.isHostOnline = Boolean(state.hostOnline);
+        this.isConnected = true;
         if (state.isArduinoConnected) {
-          this.isConnected = true;
           this.deviceName = state.deviceName || 'Arduino Uno R3 (via PC)';
           if (Array.isArray(state.piezo)) this.piezoSensors = state.piezo;
           this.notifyStatus(true, this.deviceName ?? undefined);
           this.notifyLog('INFO', `✅ Conectado ao Arduino do PC: ${this.deviceName}`);
         } else if (state.hostOnline) {
-          this.isConnected = false;
-          this.deviceName = 'PC Online (Arduino Desconectado)';
-          this.notifyStatus(false, this.deviceName ?? undefined);
-          this.notifyLog('INFO', '⚠️ PC está online, mas aguardando conexão USB com Arduino.');
+          this.deviceName = 'Ponte PC Arena (Host Ativo)';
+          this.notifyStatus(true, this.deviceName ?? undefined);
+          this.notifyLog('INFO', '🟢 Conectado ao PC da Arena via WebSocket!');
         } else {
-          this.isConnected = false;
-          this.deviceName = null;
-          this.notifyStatus(false);
-          this.notifyLog('INFO', '⏳ Aguardando PC com Arduino conectar ao Gateway...');
+          this.deviceName = 'Ponte PC Gateway (WebSocket)';
+          this.notifyStatus(true, this.deviceName);
+          this.notifyLog('INFO', '🟢 Conectado ao Gateway WebSocket do PC (pronto para ponte).');
         }
         break;
       }
@@ -159,9 +160,10 @@ export class RemoteGatewayDriver implements ISerialDriver {
           this.notifyStatus(true, this.deviceName ?? undefined);
           this.notifyLog('INFO', `🟢 Arduino conectado no PC: ${this.deviceName}`);
         } else {
-          this.isConnected = false;
-          this.notifyStatus(false);
-          this.notifyLog('INFO', '🔴 Arduino desconectado no PC.');
+          this.isConnected = this.ws?.readyState === WebSocket.OPEN;
+          this.deviceName = this.isConnected ? 'Ponte PC Gateway (WebSocket)' : null;
+          this.notifyStatus(this.isConnected, this.deviceName ?? undefined);
+          this.notifyLog('INFO', '⚠️ Cabo USB do Arduino desconectado no PC (Ponte WebSocket continua ativa).');
         }
         break;
       }
@@ -176,6 +178,11 @@ export class RemoteGatewayDriver implements ISerialDriver {
             this.piezoSensors = msg.event.piezo;
           }
         }
+        break;
+      }
+
+      case 'GATEWAY_INFO': {
+        this.notifyLog('INFO', msg.message || 'Comando recebido pelo Gateway.');
         break;
       }
 

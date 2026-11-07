@@ -170,11 +170,20 @@ class HardwareGateway {
             from: 'CONTROLLER',
           });
         } else {
-          // Host não está online
-          this.sendToSocket(ws, {
-            type: 'GATEWAY_ERROR',
-            message: 'O PC com Arduino USB não está conectado ao gateway.',
-          });
+          // Modo Ponte Autônoma: se o navegador Host USB não estiver aberto, o Gateway responde comandos de diagnóstico (PING) sem erro
+          const cmdObj = msg.command;
+          if (cmdObj && typeof cmdObj === 'object' && cmdObj.cmd === 'PING') {
+            this.sendToSocket(ws, {
+              type: 'SERIAL_EVENT',
+              event: { evt: 'READY', fw: '1.1.0-GW', piezo: this.state.piezo },
+              raw: JSON.stringify({ evt: 'READY', fw: '1.1.0-GW', piezo: this.state.piezo }),
+            });
+          } else {
+            this.sendToSocket(ws, {
+              type: 'GATEWAY_INFO',
+              message: 'Comando recebido pelo Gateway do PC (aguardando Arduino USB físico ou simulador Host).',
+            });
+          }
         }
         break;
       }

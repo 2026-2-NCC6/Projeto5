@@ -6,10 +6,10 @@
  */
 
 import { SerialCommand, SerialEvent } from '../../../packages/shared/src/protocol/serial';
-import { API_BASE_URL } from '../services/api';
+import { getApiBaseUrl } from '../services/api';
 
 export function getWebSocketGatewayUrl(): string {
-  const base = API_BASE_URL.replace(/\/api(\/v\d+)?$/, '');
+  const base = getApiBaseUrl().replace(/\/api(\/v\d+)?$/, '');
   const wsProto = base.startsWith('https') ? 'wss:' : 'ws:';
   const cleanHost = base.replace(/^https?:/, '');
   return `${wsProto}${cleanHost}/ws/hardware`;

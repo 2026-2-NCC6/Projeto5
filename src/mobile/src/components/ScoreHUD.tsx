@@ -103,24 +103,173 @@ export const ScoreHUD: React.FC<ScoreHUDProps> = ({
 
   const fsmInfo = getFsmDisplay(gameState, activeTarget, countdownValue);
 
-  const numFontSize = isSmallPhone ? fs(20) : isMobile ? fs(23) : fs(30);
-  const labelFontSize = isMobile ? fs(10) : fs(11);
-  const footerFontSize = isMobile ? fs(10) : fs(11);
-  const cardPadV = isMobile ? 12 : 16;
-  const cardPadH = isMobile ? 12 : 18;
+  if (isMobile) {
+    const mobileValSize = isSmallPhone ? fs(16) : fs(18);
+    const mobileLabelSize = fs(9.5);
 
-  const metricBasisStyle = isFiveCols
-    ? styles.cardDesktop
-    : isMobile
-    ? styles.cardMobileHalf
-    : styles.cardTabletThird;
+    return (
+      <View style={styles.mobileHudWrapper}>
+        {/* Faixa de 4 KPIs Compactos lado a lado no Celular */}
+        <View style={styles.mobileKpiStrip}>
+          {/* KPI 1: Pontos */}
+          <View
+            style={[
+              styles.mobileKpiCell,
+              { backgroundColor: theme.surface, borderColor: theme.border },
+            ]}
+          >
+            <Text
+              numberOfLines={1}
+              style={[styles.mobileKpiLabel, { color: theme.textMuted, fontSize: mobileLabelSize }]}
+            >
+              {isKidsMode ? 'ESTRELAS' : 'PONTOS'}
+            </Text>
+            <View style={styles.mobileKpiValRow}>
+              <Text style={[styles.mobileKpiVal, { color: theme.text, fontSize: mobileValSize }]}>
+                {score}
+              </Text>
+              {lastPointsAdded !== 0 && (
+                <Text
+                  style={{
+                    color: lastPointsAdded > 0 ? theme.primaryDark : theme.danger,
+                    fontSize: fs(9.5),
+                    fontWeight: '800',
+                  }}
+                >
+                  {lastPointsAdded > 0 ? `+${lastPointsAdded}` : lastPointsAdded}
+                </Text>
+              )}
+            </View>
+          </View>
+
+          {/* KPI 2: Streak */}
+          <View
+            style={[
+              styles.mobileKpiCell,
+              { backgroundColor: theme.surface, borderColor: theme.border },
+            ]}
+          >
+            <Text
+              numberOfLines={1}
+              style={[styles.mobileKpiLabel, { color: theme.textMuted, fontSize: mobileLabelSize }]}
+            >
+              STREAK
+            </Text>
+            <View style={styles.mobileKpiValRow}>
+              <Text
+                style={[styles.mobileKpiVal, { color: theme.primaryDark, fontSize: mobileValSize }]}
+              >
+                {streak}x
+              </Text>
+              <Text style={{ color: theme.textMuted, fontSize: fs(9.5), fontWeight: '600' }}>
+                máx {maxStreak}x
+              </Text>
+            </View>
+          </View>
+
+          {/* KPI 3: Rodada */}
+          <View
+            style={[
+              styles.mobileKpiCell,
+              { backgroundColor: theme.surface, borderColor: theme.border },
+            ]}
+          >
+            <Text
+              numberOfLines={1}
+              style={[styles.mobileKpiLabel, { color: theme.textMuted, fontSize: mobileLabelSize }]}
+            >
+              RODADA
+            </Text>
+            <View style={styles.mobileKpiValRow}>
+              <Text style={[styles.mobileKpiVal, { color: theme.text, fontSize: mobileValSize }]}>
+                {stepDisplay}/{totalSteps}
+              </Text>
+              <Text style={{ color: theme.primaryDark, fontSize: fs(9.5), fontWeight: '700' }}>
+                {accuracyPct}%
+              </Text>
+            </View>
+          </View>
+
+          {/* KPI 4: Reação */}
+          <View
+            style={[
+              styles.mobileKpiCell,
+              { backgroundColor: theme.surface, borderColor: theme.border },
+            ]}
+          >
+            <Text
+              numberOfLines={1}
+              style={[styles.mobileKpiLabel, { color: theme.textMuted, fontSize: mobileLabelSize }]}
+            >
+              REAÇÃO
+            </Text>
+            <View style={styles.mobileKpiValRow}>
+              <Text style={[styles.mobileKpiVal, { color: theme.text, fontSize: mobileValSize }]}>
+                {metrics.averageReactionTimeMs || 0}
+              </Text>
+              <Text style={{ color: theme.textMuted, fontSize: fs(9.5), fontWeight: '600' }}>
+                ms
+              </Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Barra Compacta de Estado FSM */}
+        <View
+          style={[
+            styles.mobileFsmBanner,
+            {
+              backgroundColor: fsmInfo.isUrgent ? theme.dangerSoft : theme.surfaceMint,
+              borderColor: fsmInfo.isUrgent ? theme.dangerBorder : theme.primaryBorder,
+            },
+          ]}
+        >
+          <SparklesIcon
+            size={14}
+            color={fsmInfo.isUrgent ? theme.danger : theme.primary}
+          />
+          <View
+            style={[
+              styles.fsmBadgeCompact,
+              {
+                backgroundColor: fsmInfo.isUrgent ? theme.danger : theme.primary,
+              },
+            ]}
+          >
+            <Text style={[styles.fsmBadgeText, { fontSize: fs(10) }]}>
+              {fsmInfo.badge}
+            </Text>
+          </View>
+          <Text
+            numberOfLines={1}
+            style={{
+              color: fsmInfo.isUrgent ? theme.danger : theme.primaryDark,
+              fontWeight: '700',
+              fontSize: fs(11.5),
+              flex: 1,
+            }}
+          >
+            {fsmInfo.description}
+          </Text>
+        </View>
+      </View>
+    );
+  }
+
+  const numFontSize = fs(30);
+  const labelFontSize = fs(11);
+  const footerFontSize = fs(11);
+  const cardPadV = 16;
+  const cardPadH = 18;
+
+  const metricBasisStyle = isFiveCols ? styles.cardDesktop : styles.cardTabletThird;
 
   return (
     <View
       style={[
         styles.row,
         !isFiveCols && styles.rowWrap,
-        { gap: isMobile ? 10 : 14, marginBottom: isMobile ? 12 : 18 },
+        { gap: 14, marginBottom: 18 },
       ]}
     >
       {/* KPI 1: PONTUAÇÃO */}
@@ -143,7 +292,7 @@ export const ScoreHUD: React.FC<ScoreHUDProps> = ({
           >
             {isKidsMode ? 'ESTRELAS' : 'PONTUAÇÃO'}
           </Text>
-          <AwardIcon size={isMobile ? 15 : 17} color={theme.primary} />
+          <AwardIcon size={17} color={theme.primary} />
         </View>
         <View style={styles.valueRow}>
           <Text style={[styles.bigValue, { color: theme.text, fontSize: numFontSize }]}>
@@ -200,9 +349,9 @@ export const ScoreHUD: React.FC<ScoreHUDProps> = ({
             numberOfLines={1}
             style={[styles.label, { color: theme.textMuted, fontSize: labelFontSize }]}
           >
-            {isSmallPhone ? 'STREAK' : 'SEQUÊNCIA (STREAK)'}
+            SEQUÊNCIA (STREAK)
           </Text>
-          <ZapIcon size={isMobile ? 15 : 17} color={theme.primary} />
+          <ZapIcon size={17} color={theme.primary} />
         </View>
         <View style={styles.valueRow}>
           <Text
@@ -240,9 +389,9 @@ export const ScoreHUD: React.FC<ScoreHUDProps> = ({
             numberOfLines={1}
             style={[styles.label, { color: theme.textMuted, fontSize: labelFontSize }]}
           >
-            {isSmallPhone ? 'RODADA' : 'RODADA & PRECISÃO'}
+            RODADA & PRECISÃO
           </Text>
-          <ActivityIcon size={isMobile ? 15 : 17} color={theme.primary} />
+          <ActivityIcon size={17} color={theme.primary} />
         </View>
         <View style={[styles.valueRow, { justifyContent: 'space-between', flexWrap: 'wrap' }]}>
           <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
@@ -252,7 +401,7 @@ export const ScoreHUD: React.FC<ScoreHUDProps> = ({
             <Text
               style={[
                 styles.slashTotal,
-                { color: theme.textMuted, fontSize: isMobile ? fs(13) : fs(16) },
+                { color: theme.textMuted, fontSize: fs(16) },
               ]}
             >
               /{totalSteps}
@@ -264,7 +413,7 @@ export const ScoreHUD: React.FC<ScoreHUDProps> = ({
               {
                 backgroundColor: theme.surfaceMint,
                 borderColor: theme.primaryBorder,
-                paddingHorizontal: isMobile ? 7 : 10,
+                paddingHorizontal: 10,
               },
             ]}
           >
@@ -274,7 +423,7 @@ export const ScoreHUD: React.FC<ScoreHUDProps> = ({
                 { color: theme.primaryDark, fontSize: fs(10) },
               ]}
             >
-              {accuracyPct}%{isSmallPhone ? '' : ' acerto'}
+              {accuracyPct}% acerto
             </Text>
           </View>
         </View>
@@ -306,7 +455,7 @@ export const ScoreHUD: React.FC<ScoreHUDProps> = ({
           >
             TEMPO MÉDIO
           </Text>
-          <ClockIcon size={isMobile ? 15 : 17} color={theme.primary} />
+          <ClockIcon size={17} color={theme.primary} />
         </View>
         <View style={styles.valueRow}>
           <Text style={[styles.bigValue, { color: theme.text, fontSize: numFontSize }]}>
@@ -324,111 +473,115 @@ export const ScoreHUD: React.FC<ScoreHUDProps> = ({
         </Text>
       </View>
 
-      {/* KPI 5: ESTADO FSM (Horizontal compacto em Mobile, Card vertical em Tablet/Desktop) */}
-      {isMobile ? (
-        <View
-          style={[
-            styles.card,
-            styles.cardMobileFullBanner,
-            {
-              backgroundColor: fsmInfo.isUrgent ? theme.dangerSoft : theme.surfaceMint,
-              borderColor: fsmInfo.isUrgent ? theme.dangerBorder : theme.primaryBorder,
-            },
-          ]}
-        >
-          <View style={styles.mobileFsmLeft}>
-            <SparklesIcon
-              size={16}
-              color={fsmInfo.isUrgent ? theme.danger : theme.primary}
-            />
-            <View
-              style={[
-                styles.fsmBadge,
-                {
-                  backgroundColor: fsmInfo.isUrgent ? theme.danger : theme.primary,
-                },
-              ]}
-            >
-              <Text style={[styles.fsmBadgeText, { fontSize: fs(11) }]}>
-                {fsmInfo.badge}
-              </Text>
-            </View>
-            <Text
-              numberOfLines={1}
-              style={{
-                color: fsmInfo.isUrgent ? theme.danger : theme.primaryDark,
-                fontWeight: '700',
-                fontSize: fs(12),
-                flex: 1,
-              }}
-            >
-              {fsmInfo.description}
-            </Text>
-          </View>
-        </View>
-      ) : (
-        <View
-          style={[
-            styles.card,
-            metricBasisStyle,
-            {
-              backgroundColor: fsmInfo.isUrgent ? theme.dangerSoft : theme.surfaceMint,
-              borderColor: fsmInfo.isUrgent ? theme.dangerBorder : theme.primaryBorder,
-              paddingVertical: cardPadV,
-              paddingHorizontal: cardPadH,
-            },
-          ]}
-        >
-          <View style={styles.cardHeader}>
-            <Text
-              style={[
-                styles.label,
-                {
-                  color: fsmInfo.isUrgent ? theme.danger : theme.primaryDark,
-                  fontSize: labelFontSize,
-                },
-              ]}
-            >
-              ESTADO FSM
-            </Text>
-            <SparklesIcon
-              size={17}
-              color={fsmInfo.isUrgent ? theme.danger : theme.primary}
-            />
-          </View>
-          <View style={[styles.valueRow, { marginVertical: 4 }]}>
-            <View
-              style={[
-                styles.fsmBadge,
-                {
-                  backgroundColor: fsmInfo.isUrgent ? theme.danger : theme.primary,
-                },
-              ]}
-            >
-              <Text style={[styles.fsmBadgeText, { fontSize: fs(12) }]}>
-                {fsmInfo.badge}
-              </Text>
-            </View>
-          </View>
+      {/* KPI 5: ESTADO FSM */}
+      <View
+        style={[
+          styles.card,
+          metricBasisStyle,
+          {
+            backgroundColor: fsmInfo.isUrgent ? theme.dangerSoft : theme.surfaceMint,
+            borderColor: fsmInfo.isUrgent ? theme.dangerBorder : theme.primaryBorder,
+            paddingVertical: cardPadV,
+            paddingHorizontal: cardPadH,
+          },
+        ]}
+      >
+        <View style={styles.cardHeader}>
           <Text
             style={[
-              styles.footer,
+              styles.label,
               {
                 color: fsmInfo.isUrgent ? theme.danger : theme.primaryDark,
-                fontWeight: '600',
-                fontSize: footerFontSize,
+                fontSize: labelFontSize,
               },
             ]}
           >
-            {fsmInfo.description}
+            ESTADO FSM
           </Text>
+          <SparklesIcon
+            size={17}
+            color={fsmInfo.isUrgent ? theme.danger : theme.primary}
+          />
         </View>
-      )}
+        <View style={[styles.valueRow, { marginVertical: 4 }]}>
+          <View
+            style={[
+              styles.fsmBadge,
+              {
+                backgroundColor: fsmInfo.isUrgent ? theme.danger : theme.primary,
+              },
+            ]}
+          >
+            <Text style={[styles.fsmBadgeText, { fontSize: fs(12) }]}>
+              {fsmInfo.badge}
+            </Text>
+          </View>
+        </View>
+        <Text
+          style={[
+            styles.footer,
+            {
+              color: fsmInfo.isUrgent ? theme.danger : theme.primaryDark,
+              fontWeight: '600',
+              fontSize: footerFontSize,
+            },
+          ]}
+        >
+          {fsmInfo.description}
+        </Text>
+      </View>
     </View>
   );
 };
 
 const styles = StyleSheet.create({
+  mobileHudWrapper: {
+    width: '100%',
+    gap: 8,
+    marginBottom: 10,
+  },
+  mobileKpiStrip: {
+    flexDirection: 'row',
+    gap: 6,
+    width: '100%',
+  },
+  mobileKpiCell: {
+    flex: 1,
+    borderRadius: 11,
+    borderWidth: 1,
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    justifyContent: 'center',
+  },
+  mobileKpiLabel: {
+    fontWeight: '800',
+    letterSpacing: 0.3,
+    marginBottom: 2,
+  },
+  mobileKpiValRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 3,
+    flexWrap: 'wrap',
+  },
+  mobileKpiVal: {
+    fontWeight: '800',
+    letterSpacing: -0.4,
+  },
+  mobileFsmBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 7,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  fsmBadgeCompact: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
   row: {
     flexDirection: 'row',
     width: '100%',
@@ -454,20 +607,6 @@ const styles = StyleSheet.create({
     flexBasis: '31%',
     flexGrow: 1,
     minWidth: 185,
-  },
-  cardMobileHalf: {
-    flexBasis: '47%',
-    flexGrow: 1,
-  },
-  cardMobileFullBanner: {
-    width: '100%',
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-  },
-  mobileFsmLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
   },
   cardHeader: {
     flexDirection: 'row',
