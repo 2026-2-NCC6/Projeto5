@@ -62,6 +62,18 @@ export interface AckEvent {
   status: string;
 }
 
+export interface TapEvent {
+  evt: 'TAP';
+  tgt: TargetId;
+  val: number;
+  ts: number;
+}
+
+export interface PollEvent {
+  evt: 'POLL';
+  raw: number[];
+}
+
 export type SerialEvent =
   | HitEvent
   | WrongHitEvent
@@ -70,7 +82,9 @@ export type SerialEvent =
   | PongEvent
   | EStopAlertEvent
   | BallShotEvent
-  | AckEvent;
+  | AckEvent
+  | TapEvent
+  | PollEvent;
 
 // ==========================================
 // DOWNLINK: Host -> Firmware
@@ -132,6 +146,10 @@ export interface MachineFeedCommand {
   angle: number; // graus
 }
 
+export interface PollCommand {
+  cmd: 'POLL';
+}
+
 export type SerialCommand =
   | StartCommand
   | PauseCommand
@@ -143,7 +161,8 @@ export type SerialCommand =
   | ResetCommand
   | PingCommand
   | CalibCommand
-  | MachineFeedCommand;
+  | MachineFeedCommand
+  | PollCommand;
 
 // ==========================================
 // Regexes Formais (Conforme Secção 6 do Modelo Formal)
@@ -244,6 +263,26 @@ export function parseSerialFrame(rawLine: string): SerialEvent | null {
           cmd: String(parsed.cmd || ''),
           status: String(parsed.status || 'OK'),
         };
+
+      case 'TAP':
+        if (parsed.tgt >= 1 && parsed.tgt <= 5 && typeof parsed.val === 'number' && typeof parsed.ts === 'number') {
+          return {
+            evt: 'TAP',
+            tgt: parsed.tgt as TargetId,
+            val: parsed.val,
+            ts: parsed.ts,
+          };
+        }
+        return null;
+
+      case 'POLL':
+        if (Array.isArray(parsed.raw)) {
+          return {
+            evt: 'POLL',
+            raw: parsed.raw.map((v: any) => Number(v || 0)),
+          };
+        }
+        return null;
 
       default:
         return null;

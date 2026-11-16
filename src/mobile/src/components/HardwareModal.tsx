@@ -72,9 +72,18 @@ export function HardwareView() {
       }
     });
 
+    const unsubEvents = hardwareManager.addEventListener((evt) => {
+      if (evt.evt === 'READY' && Array.isArray(evt.piezo) && evt.piezo.length === 5) {
+        setPiezoSensors(evt.piezo);
+      } else if (evt.evt === 'POLL' && Array.isArray(evt.raw) && evt.raw.length === 5) {
+        setPiezoSensors(evt.raw);
+      }
+    });
+
     return () => {
       unsubStatus();
       unsubLogs();
+      unsubEvents();
       unsubBridge();
     };
   }, []);

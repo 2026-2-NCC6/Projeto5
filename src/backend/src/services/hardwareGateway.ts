@@ -170,14 +170,55 @@ class HardwareGateway {
             from: 'CONTROLLER',
           });
         } else {
-          // Modo Ponte Autônoma: se o navegador Host USB não estiver aberto, o Gateway responde comandos de diagnóstico (PING) sem erro
+          // Modo Ponte Autônoma: se o navegador Host USB não estiver aberto, o Gateway responde comandos essenciais sem bloquear o cliente
           const cmdObj = msg.command;
-          if (cmdObj && typeof cmdObj === 'object' && cmdObj.cmd === 'PING') {
+          const rawStr = typeof msg.raw === 'string' ? msg.raw.trim() : '';
+          if (cmdObj === '!EMG' || rawStr === '!EMG' || (cmdObj && typeof cmdObj === 'object' && cmdObj.cmd === 'ESTOP')) {
+            const estopEvt = { evt: 'ESTOP_ALERT', src: 'GATEWAY_FAIL_SAFE', ts: Date.now() };
             this.sendToSocket(ws, {
               type: 'SERIAL_EVENT',
-              event: { evt: 'READY', fw: '1.1.0-GW', piezo: this.state.piezo },
-              raw: JSON.stringify({ evt: 'READY', fw: '1.1.0-GW', piezo: this.state.piezo }),
+              event: estopEvt,
+              raw: JSON.stringify(estopEvt),
             });
+          } else if (cmdObj && typeof cmdObj === 'object') {
+            if (cmdObj.cmd === 'PING') {
+              const readyEvt = { evt: 'READY', fw: '1.1.0-GW', piezo: this.state.piezo };
+              this.sendToSocket(ws, {
+                type: 'SERIAL_EVENT',
+                event: readyEvt,
+                raw: JSON.stringify(readyEvt),
+              });
+            } else if (cmdObj.cmd === 'POLL') {
+              const pollEvt = { evt: 'POLL', raw: [12, 10, 14, 11, 9] };
+              this.sendToSocket(ws, {
+                type: 'SERIAL_EVENT',
+                event: pollEvt,
+                raw: JSON.stringify(pollEvt),
+              });
+            } else if (cmdObj.cmd === 'RESET') {
+              const readyEvt = { evt: 'READY', hw: 'STA-GATEWAY', fw: '1.1.0-GW', piezo: this.state.piezo };
+              this.sendToSocket(ws, {
+                type: 'SERIAL_EVENT',
+                event: readyEvt,
+                raw: JSON.stringify(readyEvt),
+              });
+            } else if (['START', 'PAUSE', 'RESUME', 'FEED'].includes(cmdObj.cmd)) {
+              const ackEvt = {
+                evt: 'ACK',
+                cmd: cmdObj.cmd,
+                status: cmdObj.cmd === 'FEED' ? 'DISPATCHED' : 'OK',
+              };
+              this.sendToSocket(ws, {
+                type: 'SERIAL_EVENT',
+                event: ackEvt,
+                raw: JSON.stringify(ackEvt),
+              });
+            } else {
+              this.sendToSocket(ws, {
+                type: 'GATEWAY_INFO',
+                message: 'Comando recebido pelo Gateway do PC (aguardando Arduino USB físico ou simulador Host).',
+              });
+            }
           } else {
             this.sendToSocket(ws, {
               type: 'GATEWAY_INFO',

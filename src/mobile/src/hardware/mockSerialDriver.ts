@@ -29,30 +29,37 @@ export class MockSerialDriver implements ISerialDriver {
   private roundTimer: ReturnType<typeof setTimeout> | null = null;
   private roundStartTime: number = 0;
   private roundDurationMs: number = 0;
+  private pausedRemainingMs: number = 0;
+  private thresholds: [number, number, number, number, number] = [100, 100, 100, 100, 100];
 
   async connect(): Promise<boolean> {
     await new Promise((res) => setTimeout(res, 180));
     this.isConnected = true;
     this.deviceName = 'Simulador';
+    this.pausedRemainingMs = 0;
 
     this.notifyStatus(true, this.deviceName);
     this.notifyLog('INFO', '<ARDUINO_BOOT> Smart Tennis Arena Firmware v2.4 Ready');
     this.notifyLog('RX', '<CMD_IN> PING -> <ACK_PONG> STATUS:OK SENSORS:5');
     this.notifyLog('INFO', `<CALIB> Piezo Threshold configurado em ${this.thresholdMv}mV`);
 
-    // Emite o evento oficial de READY
-    this.notifyEvent({
+    // Emite o evento oficial de READY e registra no log RX para sincronizar calibração na UI
+    const readyEvt: SerialEvent = {
       evt: 'READY',
       hw: 'STA-UNO-R3-VIRTUAL',
       fw: '2.4.0-SIM',
-      piezo: [12, 10, 14, 11, 9],
-    });
+      piezo: [...this.thresholds],
+    };
+    this.notifyLog('RX', JSON.stringify(readyEvt));
+    this.notifyEvent(readyEvt);
 
     return true;
   }
 
   async disconnect(): Promise<void> {
     this.clearRoundTimer();
+    this.pausedRemainingMs = 0;
+    this.activeTarget = null;
     this.isConnected = false;
     this.deviceName = null;
     this.notifyLog('INFO', '<DISCONNECT> Porta virtual encerrada pelo host');
@@ -68,6 +75,7 @@ export class MockSerialDriver implements ISerialDriver {
     if (command === '!EMG' || (typeof command === 'object' && command.cmd === 'ESTOP')) {
       this.notifyLog('TX', '!EMG');
       this.clearRoundTimer();
+      this.pausedRemainingMs = 0;
       this.activeTarget = null;
       const alertEvt: SerialEvent = {
         evt: 'ESTOP_ALERT',
@@ -84,18 +92,59 @@ export class MockSerialDriver implements ISerialDriver {
     if (typeof command === 'object') {
       switch (command.cmd) {
         case 'START':
+          this.pausedRemainingMs = 0;
           this.startTargetRound(command.tgt, command.time);
           this.notifyLog('RX', `<TARGET_ON> Alvo #${command.tgt} ativado (${command.time}ms)`);
           break;
 
+        case 'PAUSE': {
+          if (this.activeTarget !== null) {
+            this.clearRoundTimer();
+            const elapsed = Date.now() - this.roundStartTime;
+            this.pausedRemainingMs = Math.max(200, this.roundDurationMs - elapsed);
+          }
+          const ackEvt: SerialEvent = { evt: 'ACK', cmd: 'PAUSE', status: 'OK' };
+          this.notifyLog('RX', JSON.stringify(ackEvt));
+          this.notifyEvent(ackEvt);
+          break;
+        }
+
+        case 'RESUME': {
+          if (this.activeTarget !== null) {
+            const rem = this.pausedRemainingMs > 0 ? this.pausedRemainingMs : 1000;
+            this.pausedRemainingMs = 0;
+            this.startTargetRound(this.activeTarget, rem);
+          }
+          const ackEvt: SerialEvent = { evt: 'ACK', cmd: 'RESUME', status: 'OK' };
+          this.notifyLog('RX', JSON.stringify(ackEvt));
+          this.notifyEvent(ackEvt);
+          break;
+        }
+
+        case 'FEED': {
+          const ackEvt: SerialEvent = { evt: 'ACK', cmd: 'FEED', status: 'DISPATCHED' };
+          this.notifyLog('RX', JSON.stringify(ackEvt));
+          this.notifyEvent(ackEvt);
+          break;
+        }
+
+        case 'POLL': {
+          const pollEvt: SerialEvent = { evt: 'POLL', raw: [12, 10, 14, 11, 9] };
+          this.notifyLog('RX', JSON.stringify(pollEvt));
+          this.notifyEvent(pollEvt);
+          break;
+        }
+
         case 'RESET':
           this.clearRoundTimer();
+          this.pausedRemainingMs = 0;
           this.activeTarget = null;
           this.notifyLog('RX', '<RESET_OK> Todos os anéis de LED reiniciados');
           this.notifyEvent({
             evt: 'READY',
             hw: 'STA-UNO-R3-VIRTUAL',
             fw: '2.4.0-RESET',
+            piezo: [...this.thresholds],
           });
           break;
 
@@ -110,11 +159,20 @@ export class MockSerialDriver implements ISerialDriver {
         }
 
         case 'CALIB': {
+          this.thresholds = [...command.thresh] as [number, number, number, number, number];
           const avg = Math.round(
             command.thresh.reduce((acc, v) => acc + v, 0) / command.thresh.length
           );
           this.thresholdMv = avg;
           this.notifyLog('INFO', `<CALIB> Piezo Threshold configurado em ${avg}mV [${command.thresh.join(',')}]`);
+          const readyEvt: SerialEvent = {
+            evt: 'READY',
+            hw: 'STA-UNO-R3-VIRTUAL',
+            fw: '2.4.0-SIM',
+            piezo: [...this.thresholds],
+          };
+          this.notifyLog('RX', JSON.stringify(readyEvt));
+          this.notifyEvent(readyEvt);
           break;
         }
 
@@ -164,8 +222,15 @@ export class MockSerialDriver implements ISerialDriver {
       this.notifyLog('RX', JSON.stringify(evt));
       this.notifyEvent(evt);
     } else {
-      // Toque livre fora de rodada ativa (teste de bancada)
-      this.notifyLog('RX', `<PIEZO_TEST> Impacto detectado no Sensor #${targetId} (ADC:${adcVal})`);
+      // Toque livre fora de rodada ativa (teste de bancada alinhado ao firmware TAP)
+      const tapEvt: SerialEvent = {
+        evt: 'TAP',
+        tgt: targetId,
+        val: adcVal,
+        ts: now,
+      };
+      this.notifyLog('RX', JSON.stringify(tapEvt));
+      this.notifyEvent(tapEvt);
     }
   }
 

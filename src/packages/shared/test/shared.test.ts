@@ -360,3 +360,32 @@ test('RF13 / RF19: Cálculo determinístico de precisão (%) e consistência (de
   // Média = 1000; variância = ((0 + 40000 + 40000 + 0) / 4) = 20000; sqrt(20000) ≈ 141ms
   assert.equal(ind.consistencyMs, 141);
 });
+
+test('Parser Serial & Serializador: suporta eventos TAP/POLL e comandos PAUSE/RESUME/FEED/POLL', () => {
+  const tapEvt = parseSerialFrame('{"evt":"TAP","tgt":1,"val":410,"ts":5200}\n');
+  assert.ok(tapEvt);
+  assert.equal(tapEvt.evt, 'TAP');
+  if (tapEvt.evt === 'TAP') {
+    assert.equal(tapEvt.tgt, 1);
+    assert.equal(tapEvt.val, 410);
+    assert.equal(tapEvt.ts, 5200);
+  }
+
+  const pollEvt = parseSerialFrame('{"evt":"POLL","raw":[100,102,98,105,101]}\n');
+  assert.ok(pollEvt);
+  assert.equal(pollEvt.evt, 'POLL');
+  if (pollEvt.evt === 'POLL') {
+    assert.deepEqual(pollEvt.raw, [100, 102, 98, 105, 101]);
+  }
+
+  assert.equal(parseSerialFrame('{"evt":"TAP","tgt":9,"val":410,"ts":5200}'), null);
+  assert.equal(parseSerialFrame('{"evt":"POLL","raw":"invalid"}'), null);
+
+  assert.equal(serializeSerialCommand({ cmd: 'PAUSE' }), '{"cmd":"PAUSE"}\n');
+  assert.equal(serializeSerialCommand({ cmd: 'RESUME' }), '{"cmd":"RESUME"}\n');
+  assert.equal(
+    serializeSerialCommand({ cmd: 'FEED', speed: 85, spin: 4, elev: 16, angle: -12 }),
+    '{"cmd":"FEED","speed":85,"spin":4,"elev":16,"angle":-12}\n'
+  );
+  assert.equal(serializeSerialCommand({ cmd: 'POLL' }), '{"cmd":"POLL"}\n');
+});

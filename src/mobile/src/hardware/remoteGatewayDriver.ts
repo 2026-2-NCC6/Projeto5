@@ -7,6 +7,7 @@
 import {
   SerialCommand,
   SerialEvent,
+  TargetId,
   serializeSerialCommand,
 } from '../../../packages/shared/src/protocol/serial';
 import {
@@ -118,6 +119,30 @@ export class RemoteGatewayDriver implements ISerialDriver {
       command,
       raw,
     });
+  }
+
+  /**
+   * Permite simular o impacto de uma bola na tela do celular conectado via Gateway
+   * quando o controlador físico ainda não estiver recebendo impactos na quadra.
+   */
+  public simulateHit(targetId: TargetId, expectedTarget?: TargetId | null): void {
+    if (!this.isConnected) return;
+
+    const now = Date.now();
+    const adcVal = Math.floor(650 + Math.random() * 300);
+
+    let evt: SerialEvent;
+    if (expectedTarget) {
+      evt =
+        targetId === expectedTarget
+          ? { evt: 'HIT', tgt: targetId, val: adcVal, ts: now }
+          : { evt: 'WRONG_HIT', tgt: targetId, val: adcVal, expected: expectedTarget, ts: now };
+    } else {
+      evt = { evt: 'TAP', tgt: targetId, val: adcVal, ts: now };
+    }
+
+    this.notifyLog('RX', `[Gateway Sim] ${JSON.stringify(evt)}`);
+    this.notifyEvent(evt);
   }
 
   private sendWsPayload(data: any): void {
