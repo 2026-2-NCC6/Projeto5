@@ -14,27 +14,18 @@ import {
   SessionStatsSummary,
 } from '../../../packages/shared/src/contracts/user';
 import {
-<<<<<<< HEAD
-  DrillDefinition,
-  DrillStatus,
-  DEFAULT_DRILLS,
-  bumpDrillVersion,
-} from '../../../packages/shared/src/contracts/drills';
-
-// URL base da API REST
-export const API_BASE_URL = 'http://localhost:3001/api';
-=======
   CreateOrUpdateDrillDto,
   DrillDefinition,
   DrillLifecycleStatus,
+  DrillStatus,
   DrillValidationResult,
   DrillVersionRecord,
+  DEFAULT_DRILLS,
+  bumpDrillVersion,
 } from '../../../packages/shared/src/contracts/drills';
 import {
-  CreateSessionDto,
   SessionAnalyticsSummary,
   SessionRecord,
-  SessionSubmissionResponse,
 } from '../../../packages/shared/src/contracts/sessions';
 import {
   CategoryRecord,
@@ -45,13 +36,6 @@ import {
   SystemSettingRecord,
 } from '../../../packages/shared/src/contracts/admin';
 
-/**
- * Resolve dinamicamente a URL da API REST:
- * 1. Prioriza `EXPO_PUBLIC_API_URL` quando definida no ambiente;
- * 2. Na Web, acompanha o hostname atual (ex.: localhost ou IP da rede local);
- * 3. No Expo Go / React Native nativo (Android/iOS), extrai automaticamente o IP da máquina host via `SourceCode.scriptURL`,
- *    com fallback para `10.0.2.2` (emulador Android) ou `localhost` (simulador iOS).
- */
 let customHostIpOverride: string | null = null;
 
 function detectMobileLanIp(): string | null {
@@ -83,7 +67,7 @@ function detectMobileLanIp(): string | null {
  * 1. Respeita override manual de IP configurado na aba IoT;
  * 2. Na Web, acompanha o hostname atual (ex.: localhost ou IP da rede local);
  * 3. No Expo Go / React Native nativo (Android/iOS), extrai automaticamente o IP LAN do PC via Metro/SourceCode
- *    ou utiliza `EXPO_PUBLIC_API_URL` (ignorando localhost no celular), com fallback para o IP da rede local.
+ *    ou utiliza `EXPO_PUBLIC_API_URL`, com fallback para a rede local.
  */
 export function resolveApiBaseUrl(): string {
   if (customHostIpOverride) {
@@ -114,7 +98,6 @@ export function resolveApiBaseUrl(): string {
     return envUrl;
   }
 
-  // Fallback para o IP da máquina host na rede local Wi-Fi
   return 'http://192.168.15.160:3001/api/v1';
 }
 
@@ -137,15 +120,12 @@ export function getDetectedHostIp(): string {
   return m && m[1] ? m[1] : '192.168.15.160';
 }
 
-const TOKEN_STORAGE_KEY = '@smart_tennis_token';
-
 export function generateCorrelationId(prefix: string = 'mob'): string {
   const rand = Math.random().toString(36).slice(2, 10);
   return `${prefix}-${Date.now().toString(36)}-${rand}`;
 }
->>>>>>> 03e98db8d84f475b5e841e8cac192153a6d66d0c
 
-const TOKEN_KEY = '@smart_tennis_token';
+const TOKEN_STORAGE_KEY = '@smart_tennis_token';
 const DRILLS_CACHE_KEY = '@smart_tennis_drills_cache_v1';
 const OFFLINE_SESSIONS_KEY = '@smart_tennis_offline_sessions_v1';
 const SESSIONS_HISTORY_CACHE_KEY = '@smart_tennis_sessions_history_v1';
@@ -244,15 +224,6 @@ const FALLBACK_SEED_SESSIONS: TrainingSessionRecord[] = [
 ];
 
 class StorageHelper {
-<<<<<<< HEAD
-  private inMemoryToken: string | null = null;
-  private inMemoryMap: Record<string, string> = {};
-
-  async getToken(): Promise<string | null> {
-    try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        return window.localStorage.getItem(TOKEN_KEY);
-=======
   private memoryStore = new Map<string, string>();
 
   async getToken(): Promise<string | null> {
@@ -270,7 +241,6 @@ class StorageHelper {
             return legacyTok;
           }
         }
->>>>>>> 03e98db8d84f475b5e841e8cac192153a6d66d0c
       }
     } catch {}
     return this.memoryStore.get(TOKEN_STORAGE_KEY) ?? null;
@@ -298,13 +268,6 @@ class StorageHelper {
   async getItem(key: string): Promise<string | null> {
     try {
       if (typeof window !== 'undefined' && window.localStorage) {
-<<<<<<< HEAD
-        if (token) {
-          window.localStorage.setItem(TOKEN_KEY, token);
-        } else {
-          window.localStorage.removeItem(TOKEN_KEY);
-        }
-=======
         const val = window.localStorage.getItem(key);
         if (val !== null) return val;
       }
@@ -326,7 +289,6 @@ class StorageHelper {
     try {
       if (typeof window !== 'undefined' && window.localStorage) {
         window.localStorage.removeItem(key);
->>>>>>> 03e98db8d84f475b5e841e8cac192153a6d66d0c
       }
     } catch {}
   }
@@ -336,9 +298,9 @@ class StorageHelper {
       if (typeof window !== 'undefined' && window.localStorage) {
         const raw = window.localStorage.getItem(key);
         if (raw) return JSON.parse(raw) as T;
-      } else if (this.inMemoryMap[key]) {
-        return JSON.parse(this.inMemoryMap[key]) as T;
       }
+      const mem = this.memoryStore.get(key);
+      if (mem) return JSON.parse(mem) as T;
     } catch {}
     return fallback;
   }
@@ -346,7 +308,7 @@ class StorageHelper {
   setJson<T>(key: string, value: T): void {
     try {
       const serialized = JSON.stringify(value);
-      this.inMemoryMap[key] = serialized;
+      this.memoryStore.set(key, serialized);
       if (typeof window !== 'undefined' && window.localStorage) {
         window.localStorage.setItem(key, serialized);
       }
@@ -387,7 +349,6 @@ async function request<T>(
   return data as T;
 }
 
-<<<<<<< HEAD
 function computeStatsFromList(sessions: TrainingSessionRecord[]): SessionStatsSummary {
   if (sessions.length === 0) {
     return {
@@ -453,7 +414,8 @@ function computeStatsFromList(sessions: TrainingSessionRecord[]): SessionStatsSu
     consistencyIndexPct,
     progressionDeltaPct,
   };
-=======
+}
+
 export interface DrillListQuery {
   category?: string;
   difficulty?: number;
@@ -468,12 +430,12 @@ export interface DrillListQuery {
 export interface SessionListQuery {
   from?: string;
   to?: string;
+  periodDays?: number;
   drillId?: string;
   status?: string;
   userId?: number;
   anonymize?: boolean;
   limit?: number;
->>>>>>> 03e98db8d84f475b5e841e8cac192153a6d66d0c
 }
 
 export const api = {
@@ -569,13 +531,29 @@ export const api = {
     });
   },
 
-<<<<<<< HEAD
   // Catálogo, Criação, Versionamento e Publicação de Treinos (RF03, RF04, RF14, RF15, RF16, RF18, RF20, RF21)
-  listDrills: async (): Promise<{ drills: DrillDefinition[]; source: 'API' | 'CACHE_OFFLINE' }> => {
+  listDrills: async (
+    filters?: DrillListQuery
+  ): Promise<{ drills: DrillDefinition[]; source: 'API' | 'CACHE_OFFLINE' }> => {
     try {
-      const remoteDrills = await request<DrillDefinition[]>('/drills');
+      const params = new URLSearchParams();
+      if (filters?.category) params.append('category', filters.category);
+      if (filters?.difficulty !== undefined) params.append('difficulty', String(filters.difficulty));
+      if (filters?.targetAudience) params.append('targetAudience', filters.targetAudience);
+      if (filters?.isKidsAdapted !== undefined) {
+        params.append('isKidsAdapted', String(filters.isKidsAdapted));
+      }
+      if (filters?.maxDurationSec) params.append('maxDurationSec', String(filters.maxDurationSec));
+      if (filters?.sensor) params.append('sensor', filters.sensor);
+      if (filters?.status) params.append('status', filters.status);
+      if (filters?.search) params.append('search', filters.search);
+      const qs = params.toString() ? `?${params.toString()}` : '';
+
+      const remoteDrills = await request<DrillDefinition[]>(`/drills${qs}`);
       if (Array.isArray(remoteDrills) && remoteDrills.length > 0) {
-        storage.setJson(DRILLS_CACHE_KEY, remoteDrills);
+        if (!qs) {
+          storage.setJson(DRILLS_CACHE_KEY, remoteDrills);
+        }
         return { drills: remoteDrills, source: 'API' };
       }
     } catch {
@@ -584,6 +562,35 @@ export const api = {
 
     const cached = storage.getJson<DrillDefinition[]>(DRILLS_CACHE_KEY, DEFAULT_DRILLS);
     return { drills: cached, source: 'CACHE_OFFLINE' };
+  },
+
+  getDrillById: async (id: string): Promise<DrillDefinition> => {
+    return request<DrillDefinition>(`/drills/${encodeURIComponent(id)}`);
+  },
+
+  getDrillVersions: async (id: string): Promise<DrillVersionRecord[]> => {
+    return request<DrillVersionRecord[]>(`/drills/${encodeURIComponent(id)}/versions`);
+  },
+
+  validateDrill: async (payload: Partial<CreateOrUpdateDrillDto>): Promise<DrillValidationResult> => {
+    return request<DrillValidationResult>('/drills/validate', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  createDrill: async (payload: CreateOrUpdateDrillDto): Promise<DrillDefinition> => {
+    return request<DrillDefinition>('/drills', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  updateDrill: async (id: string, payload: CreateOrUpdateDrillDto): Promise<DrillDefinition> => {
+    return request<DrillDefinition>(`/drills/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    });
   },
 
   saveDrill: async (
@@ -650,72 +657,33 @@ export const api = {
       storage.setJson(DRILLS_CACHE_KEY, updatedCache);
       return { drill: localSaved, syncedWithApi: false };
     }
-=======
-  // Treinos, Versionamento, Simulação e Marketplace (RF03, RF14, RF15, RF16, RF18, RF20)
-  listDrills: async (filters?: DrillListQuery): Promise<DrillDefinition[]> => {
-    const params = new URLSearchParams();
-    if (filters?.category) params.append('category', filters.category);
-    if (filters?.difficulty !== undefined) params.append('difficulty', String(filters.difficulty));
-    if (filters?.targetAudience) params.append('targetAudience', filters.targetAudience);
-    if (filters?.isKidsAdapted !== undefined) {
-      params.append('isKidsAdapted', String(filters.isKidsAdapted));
-    }
-    if (filters?.maxDurationSec) params.append('maxDurationSec', String(filters.maxDurationSec));
-    if (filters?.sensor) params.append('sensor', filters.sensor);
-    if (filters?.status) params.append('status', filters.status);
-    if (filters?.search) params.append('search', filters.search);
-    const qs = params.toString() ? `?${params.toString()}` : '';
-    return request<DrillDefinition[]>(`/drills${qs}`);
-  },
-
-  getDrillById: async (id: string): Promise<DrillDefinition> => {
-    return request<DrillDefinition>(`/drills/${encodeURIComponent(id)}`);
-  },
-
-  getDrillVersions: async (id: string): Promise<DrillVersionRecord[]> => {
-    return request<DrillVersionRecord[]>(`/drills/${encodeURIComponent(id)}/versions`);
-  },
-
-  validateDrill: async (payload: Partial<CreateOrUpdateDrillDto>): Promise<DrillValidationResult> => {
-    return request<DrillValidationResult>('/drills/validate', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    });
-  },
-
-  createDrill: async (payload: CreateOrUpdateDrillDto): Promise<DrillDefinition> => {
-    return request<DrillDefinition>('/drills', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    });
-  },
-
-  updateDrill: async (id: string, payload: CreateOrUpdateDrillDto): Promise<DrillDefinition> => {
-    return request<DrillDefinition>(`/drills/${encodeURIComponent(id)}`, {
-      method: 'PUT',
-      body: JSON.stringify(payload),
-    });
->>>>>>> 03e98db8d84f475b5e841e8cac192153a6d66d0c
   },
 
   updateDrillStatus: async (
     id: string,
-<<<<<<< HEAD
     status: DrillStatus,
     versionBump?: 'PATCH' | 'MINOR' | 'MAJOR',
     notes?: string
-  ): Promise<{ drill: DrillDefinition; syncedWithApi: boolean }> => {
+  ): Promise<{ drill: DrillDefinition; syncedWithApi: boolean; motherPlatformReceiptId?: string | null }> => {
     try {
-      const updated = await request<DrillDefinition>(`/drills/${id}/status`, {
-        method: 'PATCH',
-        body: JSON.stringify({ status, versionBump, notes }),
-      });
+      const updated = await request<DrillDefinition & { drill?: DrillDefinition; motherPlatformReceiptId?: string | null }>(
+        `/drills/${encodeURIComponent(id)}/status`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify({ status, versionBump, notes, changelog: notes }),
+        }
+      );
+      const finalDrill = updated.drill || updated;
       const currentCache = storage.getJson<DrillDefinition[]>(DRILLS_CACHE_KEY, DEFAULT_DRILLS);
       storage.setJson(
         DRILLS_CACHE_KEY,
-        currentCache.map((d) => (d.id === id ? updated : d))
+        currentCache.map((d) => (d.id === id ? finalDrill : d))
       );
-      return { drill: updated, syncedWithApi: true };
+      return {
+        drill: finalDrill,
+        syncedWithApi: true,
+        motherPlatformReceiptId: updated.motherPlatformReceiptId ?? null,
+      };
     } catch {
       const currentCache = storage.getJson<DrillDefinition[]>(DRILLS_CACHE_KEY, DEFAULT_DRILLS);
       const target = currentCache.find((d) => d.id === id) || DEFAULT_DRILLS[0];
@@ -741,7 +709,7 @@ export const api = {
         DRILLS_CACHE_KEY,
         currentCache.map((d) => (d.id === id ? updatedLocal : d))
       );
-      return { drill: updatedLocal, syncedWithApi: false };
+      return { drill: updatedLocal, syncedWithApi: false, motherPlatformReceiptId: null };
     }
   },
 
@@ -754,13 +722,20 @@ export const api = {
   },
 
   submitSession: async (
-    payload: CreateSessionDto & { athleteName?: string }
+    payload: CreateSessionDto & { athleteName?: string; correlationId?: string }
   ): Promise<{ record: TrainingSessionRecord; syncState: 'SYNCED' | 'OFFLINE_QUEUED' }> => {
     try {
-      const saved = await request<TrainingSessionRecord>('/sessions', {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      });
+      const saved = await request<TrainingSessionRecord>(
+        '/sessions',
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            ...payload,
+            idempotencyKey: payload.sessionUuid,
+          }),
+        },
+        payload.correlationId
+      );
 
       const history = storage.getJson<TrainingSessionRecord[]>(
         SESSIONS_HISTORY_CACHE_KEY,
@@ -818,7 +793,11 @@ export const api = {
       try {
         await request<TrainingSessionRecord>('/sessions', {
           method: 'POST',
-          body: JSON.stringify({ ...item, syncedFromOffline: true }),
+          body: JSON.stringify({
+            ...item,
+            idempotencyKey: item.sessionUuid,
+            syncedFromOffline: true,
+          }),
         });
         flushedCount += 1;
       } catch {
@@ -831,10 +810,7 @@ export const api = {
   },
 
   // Histórico e Indicadores (RF13)
-  listSessions: async (filters?: {
-    drillId?: string;
-    periodDays?: number;
-  }): Promise<{
+  listSessions: async (filters?: SessionListQuery): Promise<{
     sessions: TrainingSessionRecord[];
     stats: SessionStatsSummary;
     source: 'API' | 'CACHE_OFFLINE';
@@ -846,6 +822,12 @@ export const api = {
     if (filters?.periodDays && filters.periodDays > 0) {
       params.append('periodDays', String(filters.periodDays));
     }
+    if (filters?.from) params.append('from', filters.from);
+    if (filters?.to) params.append('to', filters.to);
+    if (filters?.status) params.append('status', filters.status);
+    if (filters?.userId !== undefined) params.append('userId', String(filters.userId));
+    if (filters?.anonymize) params.append('anonymize', 'true');
+    if (filters?.limit) params.append('limit', String(filters.limit));
     const qs = params.toString() ? `?${params.toString()}` : '';
 
     try {
@@ -875,42 +857,6 @@ export const api = {
         source: 'CACHE_OFFLINE',
       };
     }
-  },
-
-  // Auditoria e Logs (RF22, RF23)
-=======
-    status: DrillLifecycleStatus,
-    changelog?: string
-  ): Promise<{ drill: DrillDefinition; motherPlatformReceiptId: string | null }> => {
-    return request(`/drills/${encodeURIComponent(id)}/status`, {
-      method: 'POST',
-      body: JSON.stringify({ status, changelog }),
-    });
-  },
-
-  // Sessões, Telemetria LGPD, Sincronização Idempotente e Analytics (RF12, RF13, RF19, RF21)
-  submitSession: async (payload: CreateSessionDto): Promise<SessionSubmissionResponse> => {
-    return request<SessionSubmissionResponse>(
-      '/sessions',
-      {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      },
-      payload.correlationId
-    );
-  },
-
-  listSessions: async (query?: SessionListQuery): Promise<SessionRecord[]> => {
-    const params = new URLSearchParams();
-    if (query?.from) params.append('from', query.from);
-    if (query?.to) params.append('to', query.to);
-    if (query?.drillId) params.append('drillId', query.drillId);
-    if (query?.status) params.append('status', query.status);
-    if (query?.userId !== undefined) params.append('userId', String(query.userId));
-    if (query?.anonymize) params.append('anonymize', 'true');
-    if (query?.limit) params.append('limit', String(query.limit));
-    const qs = params.toString() ? `?${params.toString()}` : '';
-    return request<SessionRecord[]>(`/sessions${qs}`);
   },
 
   getSessionAnalytics: async (query?: {
@@ -1029,12 +975,10 @@ export const api = {
   },
 
   // Auditoria, Evidências da Plataforma Mãe e Health Check (RF18, RF19, RF23)
->>>>>>> 03e98db8d84f475b5e841e8cac192153a6d66d0c
   getAuditLogs: async (limit: number = 30): Promise<AuditLog[]> => {
     return request<AuditLog[]>(`/audit-logs?limit=${limit}`);
   },
 
-<<<<<<< HEAD
   logCriticalEvent: async (
     action: string,
     details: string,
@@ -1050,13 +994,10 @@ export const api = {
     }
   },
 
-  // Health check
-=======
   getMotherPlatformSyncLogs: async (limit: number = 30): Promise<any[]> => {
     return request<any[]>(`/mother-platform/sync-logs?limit=${limit}`);
   },
 
->>>>>>> 03e98db8d84f475b5e841e8cac192153a6d66d0c
   checkHealth: async (): Promise<{ status: string; database: { status: string } }> => {
     return request<{ status: string; database: { status: string } }>('/health');
   },

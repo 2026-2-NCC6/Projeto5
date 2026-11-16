@@ -1,75 +1,19 @@
 import { Request, Response } from 'express';
-<<<<<<< HEAD
-import { pool, logAuditEvent } from '../db';
-import {
-  CreateSessionDto,
-  TrainingSessionRecord,
-  SessionStatsSummary,
-} from '../../../packages/shared/src/contracts/user';
-
-function mapRowToSession(r: any): TrainingSessionRecord {
-  let zoneAnalytics = {
-    attempts: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
-    hits: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
-    avgReactionMs: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
-  };
-  let eventsTelemetry = undefined;
-
-  try {
-    if (r.zone_analytics_json) {
-      zoneAnalytics =
-        typeof r.zone_analytics_json === 'string'
-          ? JSON.parse(r.zone_analytics_json)
-          : r.zone_analytics_json;
-    }
-  } catch {}
-
-  try {
-    if (r.events_telemetry_json) {
-      eventsTelemetry =
-        typeof r.events_telemetry_json === 'string'
-          ? JSON.parse(r.events_telemetry_json)
-          : r.events_telemetry_json;
-    }
-  } catch {}
-
-  return {
-    id: r.id,
-    sessionUuid: r.session_uuid,
-    userId: r.user_id,
-    athleteName: r.athlete_name || 'Praticante Arena',
-    drillId: r.drill_id,
-    drillTitle: r.drill_title,
-    drillVersion: r.drill_version || '1.0.0',
-    isKidsMode: Boolean(r.is_kids_mode),
-    status: r.status || 'COMPLETED',
-    score: Number(r.score || 0),
-    maxStreak: Number(r.max_streak || 0),
-    hits: Number(r.hits || 0),
-    misses: Number(r.misses || 0),
-    wrongHits: Number(r.wrong_hits || 0),
-    accuracyPct: Number(r.accuracy_pct || 0),
-    averageReactionTimeMs: Number(r.average_reaction_time_ms || 0),
-    durationSec: Number(r.duration_sec || 0),
-    hardwareMode: r.hardware_mode === 'WEB_SERIAL' ? 'WEB_SERIAL' : 'MOCK',
-    zoneAnalytics,
-    eventsTelemetry,
-    telemetryAuthorized: Boolean(r.telemetry_authorized),
-    syncedFromOffline: Boolean(r.synced_from_offline),
-    startedAt: r.started_at ? new Date(r.started_at).toISOString() : new Date().toISOString(),
-    completedAt: r.completed_at ? new Date(r.completed_at).toISOString() : new Date().toISOString(),
-    createdAt: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString(),
-=======
 import mysql from 'mysql2/promise';
 import { pool, logAuditEvent } from '../db';
 import {
   computeSessionAnalyticalIndicators,
-  CreateSessionDto,
+  CreateSessionDto as V1CreateSessionDto,
   SessionAnalyticsSummary,
   SessionRecord,
   SessionSubmissionResponse,
   SessionTelemetryEvent,
 } from '../../../packages/shared/src/contracts/sessions';
+import {
+  CreateSessionDto as LegacyCreateSessionDto,
+  SessionStatsSummary,
+  TrainingSessionRecord,
+} from '../../../packages/shared/src/contracts/user';
 import { TARGET_TACTICAL_NAMES } from '../../../packages/shared/src/contracts/drills';
 import type { TargetId } from '../../../packages/shared/src/protocol/serial';
 import {
@@ -78,8 +22,9 @@ import {
 } from '../../../packages/shared/src/security/validation';
 import { forwardSessionToMotherPlatform } from '../services/motherPlatformService';
 
-function safeJsonParse<T>(raw: string | null | undefined, fallback: T): T {
+function safeJsonParse<T>(raw: any, fallback: T): T {
   if (!raw) return fallback;
+  if (typeof raw === 'object') return raw as T;
   try {
     return JSON.parse(raw) as T;
   } catch {
@@ -99,7 +44,9 @@ function buildRecommendations(params: {
 
   if (isKids) {
     if (accuracyPct >= 70) {
-      recs.push('Excelente coordenação! Na próxima sessão, experimente avançar para um desafio de ritmo um pouquinho mais rápido.');
+      recs.push(
+        'Excelente coordenação! Na próxima sessão, experimente avançar para um desafio de ritmo um pouquinho mais rápido.'
+      );
     } else {
       recs.push('Ótimo esforço! Continue praticando Alvos Mágicos olhando para a luz antes da batida.');
     }
@@ -107,19 +54,27 @@ function buildRecommendations(params: {
   }
 
   if (accuracyPct < 65) {
-    recs.push('Priorize treinos da categoria Precisão (janela >= 2800ms) para estabilizar controle direcional antes de elevar a velocidade.');
+    recs.push(
+      'Priorize treinos da categoria Precisão (janela >= 2800ms) para estabilizar controle direcional antes de elevar a velocidade.'
+    );
   } else if (accuracyPct >= 85) {
-    recs.push('Precisão consistente acima de 85% — recomendado avançar um nível de dificuldade ou reduzir janela de tempo.');
+    recs.push(
+      'Precisão consistente acima de 85% — recomendado avançar um nível de dificuldade ou reduzir janela de tempo.'
+    );
   }
 
   if (avgReactionMs > 1250) {
-    recs.push('Tempo médio de reação elevado: trabalhe o split-step no centro da linha de base antes de cada disparo.');
+    recs.push(
+      'Tempo médio de reação elevado: trabalhe o split-step no centro da linha de base antes de cada disparo.'
+    );
   } else if (avgReactionMs > 0 && avgReactionMs <= 900) {
     recs.push('Excelente tempo de reação sub-900ms — apto para protocolos Reflexo Rápido e Resistência Pro.');
   }
 
   if (wrongHits > 0) {
-    recs.push(`Foram registrados ${wrongHits} acionamento(s) em alvo incorreto: reforce a leitura periférica antes da preparação do golpe.`);
+    recs.push(
+      `Foram registrados ${wrongHits} acionamento(s) em alvo incorreto: reforce a leitura periférica antes da preparação do golpe.`
+    );
   }
 
   const entries = ([1, 2, 3, 4, 5] as TargetId[]).map((id) => ({
@@ -129,177 +84,140 @@ function buildRecommendations(params: {
   const totalHits = entries.reduce((s, e) => s + e.count, 0);
   if (totalHits >= 4) {
     const weakest = entries.sort((a, b) => a.count - b.count)[0];
-    recs.push(`Foco técnico sugerido: Zona ${weakest.id} (${TARGET_TACTICAL_NAMES[weakest.id]}) apresentou menor volume de conversões.`);
+    recs.push(
+      `Foco técnico sugerido: Zona ${weakest.id} (${TARGET_TACTICAL_NAMES[weakest.id]}) apresentou menor volume de conversões.`
+    );
   }
 
   return recs.slice(0, 4);
 }
 
-function mapRowToSessionRecord(
+export function mapRowToUnifiedSession(
   r: any,
-  requester: { id: number; role: string },
-  anonymizeDemo: boolean
-): SessionRecord {
+  requester?: { id: number; role: string } | null,
+  anonymizeDemo: boolean = false
+): SessionRecord & TrainingSessionRecord {
   const isMinor = r.user_age_group === 'KIDS' || r.audience_mode === 'KIDS';
-  const isSelf = requester.id === r.user_id;
-  const isAdmin = requester.role === 'ADMIN';
+  const isSelf = requester ? requester.id === r.user_id : false;
+  const isAdmin = requester?.role === 'ADMIN';
 
   let displayName = r.user_name || `Atleta #${r.user_id}`;
   if (anonymizeDemo || (isMinor && !isSelf && !isAdmin)) {
     displayName = anonymizeDisplayName(displayName, isMinor);
   }
 
+  const parsedMetrics = safeJsonParse<any>(r.metrics_json, {
+    score: Number(r.score || 0),
+    streak: 0,
+    maxStreak: Number(r.max_streak || 0),
+    hits: Number(r.hits || 0),
+    misses: Number(r.misses || 0),
+    wrongHits: Number(r.wrong_hits || 0),
+    reactionTimes: [],
+    averageReactionTimeMs: Number(r.avg_reaction_ms || 0),
+    hitsByTarget: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
+  });
+
+  const hitsByTarget = parsedMetrics?.hitsByTarget || { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+  const zoneAnalytics = parsedMetrics?.zoneAnalytics || {
+    attempts: hitsByTarget,
+    hits: hitsByTarget,
+    avgReactionMs: {
+      1: Number(r.avg_reaction_ms || 0),
+      2: Number(r.avg_reaction_ms || 0),
+      3: Number(r.avg_reaction_ms || 0),
+      4: Number(r.avg_reaction_ms || 0),
+      5: Number(r.avg_reaction_ms || 0),
+    },
+  };
+
+  const startedIso = r.started_at ? new Date(r.started_at).toISOString() : new Date().toISOString();
+  const endedIso = r.ended_at ? new Date(r.ended_at).toISOString() : startedIso;
+  const createdIso = r.created_at ? new Date(r.created_at).toISOString() : endedIso;
+  const hwMode =
+    r.device_code?.includes('UNO') || parsedMetrics?.hardwareMode === 'WEB_SERIAL'
+      ? 'WEB_SERIAL'
+      : parsedMetrics?.hardwareMode === 'REMOTE_GATEWAY'
+        ? 'REMOTE_GATEWAY'
+        : 'MOCK';
+
   return {
     id: r.id,
     idempotencyKey: r.idempotency_key,
+    sessionUuid: r.idempotency_key,
     correlationId: r.correlation_id || null,
     userId: r.user_id,
     userName: displayName,
+    athleteName: displayName,
     drillId: r.drill_id,
     drillTitle: r.drill_title || r.drill_id,
-    drillVersion: r.drill_version,
+    drillVersion: r.drill_version || '1.0.0',
     deviceCode: r.device_code || null,
-    audienceMode: r.audience_mode,
-    status: r.status,
-    startedAt: new Date(r.started_at).toISOString(),
-    endedAt: new Date(r.ended_at).toISOString(),
-    durationSec: Number(r.duration_sec),
-    score: Number(r.score),
-    maxStreak: Number(r.max_streak),
-    hits: Number(r.hits),
-    misses: Number(r.misses),
-    wrongHits: Number(r.wrong_hits),
-    accuracyPct: Number(r.accuracy_pct),
-    avgReactionMs: Number(r.avg_reaction_ms),
-    consistencyMs: Number(r.consistency_ms),
+    audienceMode: r.audience_mode || 'ADULTO',
+    isKidsMode: r.audience_mode === 'KIDS',
+    status: r.status || 'COMPLETED',
+    startedAt: startedIso,
+    endedAt: endedIso,
+    completedAt: endedIso,
+    durationSec: Number(r.duration_sec || 0),
+    score: Number(r.score || 0),
+    maxStreak: Number(r.max_streak || 0),
+    hits: Number(r.hits || 0),
+    misses: Number(r.misses || 0),
+    wrongHits: Number(r.wrong_hits || 0),
+    accuracyPct: Math.round(Number(r.accuracy_pct || 0)),
+    avgReactionMs: Number(r.avg_reaction_ms || 0),
+    averageReactionTimeMs: Number(r.avg_reaction_ms || 0),
+    consistencyMs: Number(r.consistency_ms || 0),
     goalsMet: Boolean(r.goals_met),
     stopReason: r.stop_reason || null,
-    metrics: safeJsonParse(r.metrics_json, {
-      score: Number(r.score),
-      streak: 0,
-      maxStreak: Number(r.max_streak),
-      hits: Number(r.hits),
-      misses: Number(r.misses),
-      wrongHits: Number(r.wrong_hits),
-      reactionTimes: [],
-      averageReactionTimeMs: Number(r.avg_reaction_ms),
-      hitsByTarget: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
-    }),
+    hardwareMode: hwMode,
+    zoneAnalytics,
+    metrics: parsedMetrics,
     telemetryIncluded: Boolean(r.telemetry_included),
-    motherSyncStatus: r.mother_sync_status,
+    telemetryAuthorized: Boolean(r.telemetry_included),
+    syncedFromOffline: Boolean(parsedMetrics?.syncedFromOffline),
+    motherSyncStatus: r.mother_sync_status || 'SYNCED_MOCK',
     motherSyncId: r.mother_sync_id || null,
-    createdAt: new Date(r.created_at).toISOString(),
->>>>>>> 03e98db8d84f475b5e841e8cac192153a6d66d0c
+    createdAt: createdIso,
   };
 }
 
+async function resolveSessionUserId(
+  conn: mysql.PoolConnection,
+  reqUser?: { id: number; name: string; role: string },
+  isKidsMode?: boolean
+): Promise<{ id: number; name: string; role: string }> {
+  if (reqUser?.id) {
+    return reqUser;
+  }
+  const targetEmail = isKidsMode ? 'kids@smarttennis.com' : 'jogador@smarttennis.com';
+  const [rows] = await conn.query<any[]>(
+    'SELECT id, name, role FROM users WHERE email = ? OR role = \'JOGADOR\' ORDER BY (email = ?) DESC, id ASC LIMIT 1',
+    [targetEmail, targetEmail]
+  );
+  if (rows[0]) {
+    return { id: rows[0].id, name: rows[0].name, role: rows[0].role };
+  }
+  return { id: 1, name: 'Praticante Arena', role: 'JOGADOR' };
+}
+
 /**
-<<<<<<< HEAD
- * POST /api/sessions — Recebimento idempotente de resultados e telemetria (RF19, RF21, LGPD)
+ * POST /sessions
+ * Recebe resumo e telemetria com chave de idempotência (idempotencyKey ou sessionUuid),
+ * aplica LGPD e encaminha à Plataforma Mãe (RF19, RF21, RF22)
  */
 export async function submitSession(req: Request, res: Response): Promise<void> {
-  const body = req.body as CreateSessionDto & {
+  const body = req.body as Partial<V1CreateSessionDto & LegacyCreateSessionDto> & {
     athleteName?: string;
     syncedFromOffline?: boolean;
   };
-  const ip = req.ip || req.socket.remoteAddress || 'unknown';
 
-  if (!body.sessionUuid || !body.drillId || !body.drillTitle) {
-    res.status(400).json({ error: 'sessionUuid, drillId e drillTitle são obrigatórios' });
-    return;
-  }
-
-  try {
-    // Idempotência: se sessionUuid já foi sincronizado anteriormente, retorna o registro existente (RF21)
-    const [existing] = await pool.query<any[]>(
-      'SELECT * FROM training_sessions WHERE session_uuid = ?',
-      [body.sessionUuid]
-    );
-    if (existing[0]) {
-      res.status(200).json(mapRowToSession(existing[0]));
-      return;
-    }
-
-    // Proteção reforçada LGPD para crianças e adolescentes (Seção 3 do edital):
-    // Se estiver em Modo Kids, aplica coleta mínima (anonimiza sobrenome e omite telemetria bruta a menos que explicitamente autorizado)
-    const rawAthleteName = req.user?.name || body.athleteName || 'Praticante Convidado';
-    const safeAthleteName = body.isKidsMode
-      ? `${rawAthleteName.split(' ')[0]} (Perfil Kids Protegido LGPD)`
-      : rawAthleteName;
-
-    const allowDetailedTelemetry = body.isKidsMode
-      ? Boolean(body.telemetryAuthorized === true)
-      : body.telemetryAuthorized !== false;
-
-    const telemetryJson =
-      allowDetailedTelemetry && Array.isArray(body.eventsTelemetry)
-        ? JSON.stringify(body.eventsTelemetry)
-        : null;
-
-    const startedDate = body.startedAt ? new Date(body.startedAt) : new Date();
-    const completedDate = body.completedAt ? new Date(body.completedAt) : new Date();
-
-    const [insertRes] = await pool.query<any>(
-      `INSERT INTO training_sessions (
-        session_uuid, user_id, athlete_name, drill_id, drill_title, drill_version,
-        is_kids_mode, status, score, max_streak, hits, misses, wrong_hits,
-        accuracy_pct, average_reaction_time_ms, duration_sec, hardware_mode,
-        zone_analytics_json, events_telemetry_json, telemetry_authorized,
-        synced_from_offline, started_at, completed_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        body.sessionUuid,
-        req.user?.id || null,
-        safeAthleteName,
-        body.drillId,
-        body.drillTitle,
-        body.drillVersion || '1.0.0',
-        body.isKidsMode ? 1 : 0,
-        body.status || 'COMPLETED',
-        body.score || 0,
-        body.maxStreak || 0,
-        body.hits || 0,
-        body.misses || 0,
-        body.wrongHits || 0,
-        body.accuracyPct || 0,
-        body.averageReactionTimeMs || 0,
-        body.durationSec || 0,
-        body.hardwareMode || 'MOCK',
-        JSON.stringify(body.zoneAnalytics || {}),
-        telemetryJson,
-        allowDetailedTelemetry ? 1 : 0,
-        body.syncedFromOffline ? 1 : 0,
-        startedDate,
-        completedDate,
-      ]
-    );
-
-    await logAuditEvent(
-      body.syncedFromOffline ? 'SESSION_SYNC_OFFLINE' : 'SESSION_COMPLETED',
-      req.user?.id || null,
-      safeAthleteName,
-      ip,
-      `Sessão "${body.drillTitle}" (${body.status || 'COMPLETED'}) • Score: ${body.score} pts • Precisão: ${body.accuracyPct}%`
-    );
-
-    const [createdRows] = await pool.query<any[]>(
-      'SELECT * FROM training_sessions WHERE id = ?',
-      [insertRes.insertId]
-    );
-
-    res.status(201).json(mapRowToSession(createdRows[0]));
-  } catch (err: any) {
-    console.error('Erro ao registrar sessão de treino:', err);
-    res.status(500).json({ error: 'Erro interno ao salvar resultado da sessão' });
-=======
- * POST /sessions
- * Recebe resumo e telemetria com chave de idempotência, aplica LGPD e encaminha à Plataforma Mãe (RF19, RF21, RF22)
- */
-export async function submitSession(req: Request, res: Response): Promise<void> {
-  const body = req.body as CreateSessionDto;
-
-  if (!body?.idempotencyKey || typeof body.idempotencyKey !== 'string' || body.idempotencyKey.trim().length < 6) {
-    res.status(400).json({ error: 'Chave de idempotência (idempotencyKey) válida é obrigatória (mínimo 6 caracteres)' });
+  const rawKey = body?.idempotencyKey || body?.sessionUuid;
+  if (!rawKey || typeof rawKey !== 'string' || rawKey.trim().length < 4) {
+    res.status(400).json({
+      error: 'Chave de idempotência (idempotencyKey ou sessionUuid) válida é obrigatória',
+    });
     return;
   }
 
@@ -308,17 +226,30 @@ export async function submitSession(req: Request, res: Response): Promise<void> 
     return;
   }
 
-  if (!body.metrics || typeof body.metrics.score !== 'number') {
-    res.status(400).json({ error: 'Objeto de métricas da sessão (metrics) é obrigatório' });
-    return;
-  }
+  const normalizedMetrics = body.metrics || {
+    score: Number(body.score ?? 0),
+    streak: Number(body.maxStreak ?? 0),
+    maxStreak: Number(body.maxStreak ?? 0),
+    hits: Number(body.hits ?? 0),
+    misses: Number(body.misses ?? 0),
+    wrongHits: Number(body.wrongHits ?? 0),
+    reactionTimes: [],
+    averageReactionTimeMs: Number(body.averageReactionTimeMs ?? 0),
+    hitsByTarget: body.zoneAnalytics?.hits || { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
+  };
 
-  const idempotencyKey = body.idempotencyKey.trim().slice(0, 120);
+  const idempotencyKey = rawKey.trim().slice(0, 120);
   const correlationId = req.correlationId || body.correlationId || null;
-  const userId = req.user!.id;
 
   const conn = await pool.getConnection();
   try {
+    const resolvedUser = await resolveSessionUserId(
+      conn,
+      req.user,
+      body.audienceMode === 'KIDS' || Boolean(body.isKidsMode)
+    );
+    const userId = resolvedUser.id;
+
     // 1. Verificar reenvio idempotente (RF21 / Seção 5 Disponibilidade e Resiliência)
     const [existingRows] = await conn.query<any[]>(
       `SELECT s.*, u.name AS user_name, p.age_group AS user_age_group, d.title AS drill_title
@@ -332,12 +263,7 @@ export async function submitSession(req: Request, res: Response): Promise<void> 
 
     if (existingRows.length > 0) {
       const existing = existingRows[0];
-      if (existing.user_id !== userId && req.user!.role !== 'ADMIN') {
-        res.status(409).json({ error: 'Conflito de chave de idempotência com outro usuário' });
-        return;
-      }
-
-      const sessionRec = mapRowToSessionRecord(existing, req.user!, false);
+      const sessionRec = mapRowToUnifiedSession(existing, resolvedUser, false);
       const recs = buildRecommendations({
         accuracyPct: sessionRec.accuracyPct,
         avgReactionMs: sessionRec.avgReactionMs,
@@ -346,7 +272,8 @@ export async function submitSession(req: Request, res: Response): Promise<void> 
         isKids: sessionRec.audienceMode === 'KIDS',
       });
 
-      const replayResponse: SessionSubmissionResponse = {
+      const replayResponse: SessionSubmissionResponse & TrainingSessionRecord = {
+        ...sessionRec,
         session: sessionRec,
         idempotentReplay: true,
         telemetryPersisted: sessionRec.telemetryIncluded,
@@ -372,9 +299,13 @@ export async function submitSession(req: Request, res: Response): Promise<void> 
       [userId]
     );
     const profile = profileRows[0];
-    const isMinor = profile?.age_group === 'KIDS';
+    const isMinor =
+      profile?.age_group === 'KIDS' ||
+      body.audienceMode === 'KIDS' ||
+      Boolean(body.isKidsMode);
     const telemetryAllowed = Boolean(
-      profile?.telemetry_consent && (!isMinor || profile?.guardian_consent)
+      (profile?.telemetry_consent ?? body.telemetryAuthorized ?? !isMinor) &&
+        (!isMinor || profile?.guardian_consent || body.telemetryAuthorized === true)
     );
 
     const [drillRows] = await conn.query<any[]>(
@@ -393,31 +324,74 @@ export async function submitSession(req: Request, res: Response): Promise<void> 
     );
     const previousScore: number | null = prevRows.length > 0 ? Number(prevRows[0].score) : null;
 
-    const { accuracyPct, consistencyMs } = computeSessionAnalyticalIndicators(body.metrics);
-    const avgReactionMs = Math.max(0, Math.round(body.metrics.averageReactionTimeMs || 0));
+    const computedIndicators = computeSessionAnalyticalIndicators(normalizedMetrics);
+    const accuracyPct =
+      computedIndicators.totalAttempts > 0
+        ? computedIndicators.accuracyPct
+        : Number(body.accuracyPct ?? 0);
+    const consistencyMs = computedIndicators.consistencyMs;
+    const avgReactionMs = Math.max(
+      0,
+      Math.round(normalizedMetrics.averageReactionTimeMs || body.averageReactionTimeMs || 0)
+    );
 
     const computedGoalsMet =
       typeof body.goalsMet === 'boolean'
         ? body.goalsMet
         : scoringRules
-          ? body.metrics.score >= (scoringRules.targetScoreGoal || 0) &&
+          ? normalizedMetrics.score >= (scoringRules.targetScoreGoal || 0) &&
             accuracyPct >= (scoringRules.minAccuracyPercent || 0)
           : body.status === 'COMPLETED' && accuracyPct >= 60;
 
     const startedAt = body.startedAt ? new Date(body.startedAt) : new Date();
-    const endedAt = body.endedAt ? new Date(body.endedAt) : new Date();
+    const endedIsoInput = body.endedAt || body.completedAt;
+    const endedAt = endedIsoInput ? new Date(endedIsoInput) : new Date();
     const durationSec =
       typeof body.durationSec === 'number' && body.durationSec >= 0
         ? Math.round(body.durationSec)
         : Math.max(1, Math.round((endedAt.getTime() - startedAt.getTime()) / 1000));
 
     const stopReason = sanitizeOptionalText(body.stopReason, 255) ?? null;
-    const incomingEvents: SessionTelemetryEvent[] = Array.isArray(body.events) ? body.events : [];
+
+    let incomingEvents: SessionTelemetryEvent[] = [];
+    if (Array.isArray(body.events)) {
+      incomingEvents = body.events;
+    } else if (Array.isArray(body.eventsTelemetry)) {
+      incomingEvents = body.eventsTelemetry.map((ev, idx) => ({
+        eventIndex: idx + 1,
+        eventType: ev.result === 'ESTOP' ? 'ESTOP' : ev.result,
+        stepNumber: ev.stepNumber,
+        targetId: ev.targetId,
+        adcValue: ev.adcForce ?? null,
+        reactionTimeMs: ev.reactionTimeMs ?? null,
+        pointsAwarded: ev.pointsDelta,
+        occurredAt: ev.timestamp || endedAt.toISOString(),
+      }));
+    }
+
     const persistEvents = telemetryAllowed && incomingEvents.length > 0;
 
     const validStatuses = ['COMPLETED', 'ABORTED', 'EMERGENCY_STOP', 'ERROR'];
-    const finalStatus = validStatuses.includes(body.status) ? body.status : 'COMPLETED';
-    const audienceMode = body.audienceMode === 'KIDS' ? 'KIDS' : 'ADULTO';
+    const finalStatus = validStatuses.includes(body.status as string)
+      ? (body.status as any)
+      : 'COMPLETED';
+    const audienceMode =
+      body.audienceMode === 'KIDS' || Boolean(body.isKidsMode) ? 'KIDS' : 'ADULTO';
+
+    const storedMetricsPayload = {
+      ...normalizedMetrics,
+      zoneAnalytics: body.zoneAnalytics || undefined,
+      hardwareMode: body.hardwareMode || 'MOCK',
+      syncedFromOffline: Boolean(body.syncedFromOffline),
+    };
+
+    const deviceCode =
+      body.deviceCode ||
+      (body.hardwareMode === 'WEB_SERIAL'
+        ? 'STA-UNO-R3-01'
+        : body.hardwareMode === 'REMOTE_GATEWAY'
+          ? 'STA-WIFI-BRIDGE-01'
+          : 'STA-SIM-VIRTUAL-01');
 
     const [insertRes] = await conn.query<mysql.ResultSetHeader>(
       `INSERT INTO training_sessions (
@@ -432,23 +406,23 @@ export async function submitSession(req: Request, res: Response): Promise<void> 
         userId,
         body.drillId,
         body.drillVersion || drillRow?.current_version || '1.0.0',
-        body.deviceCode || null,
+        deviceCode,
         audienceMode,
         finalStatus,
         startedAt,
         endedAt,
         durationSec,
-        Math.round(body.metrics.score),
-        Math.round(body.metrics.maxStreak || 0),
-        Math.round(body.metrics.hits || 0),
-        Math.round(body.metrics.misses || 0),
-        Math.round(body.metrics.wrongHits || 0),
+        Math.round(normalizedMetrics.score),
+        Math.round(normalizedMetrics.maxStreak || 0),
+        Math.round(normalizedMetrics.hits || 0),
+        Math.round(normalizedMetrics.misses || 0),
+        Math.round(normalizedMetrics.wrongHits || 0),
         accuracyPct,
         avgReactionMs,
         consistencyMs,
         computedGoalsMet ? 1 : 0,
         stopReason,
-        JSON.stringify(body.metrics),
+        JSON.stringify(storedMetricsPayload),
         persistEvents ? 1 : 0,
       ]
     );
@@ -492,11 +466,14 @@ export async function submitSession(req: Request, res: Response): Promise<void> 
         [
           sessionId,
           userId,
-          req.user!.name,
-          body.deviceCode || null,
+          resolvedUser.name,
+          deviceCode,
           finalStatus === 'EMERGENCY_STOP' ? 'EMERGENCY_STOP' : 'COMMUNICATION_LOSS',
           'SESSION_SYNC',
-          stopReason || (finalStatus === 'EMERGENCY_STOP' ? 'Parada segura acionada durante a sessão' : 'Falha técnica reportada na sessão'),
+          stopReason ||
+            (finalStatus === 'EMERGENCY_STOP'
+              ? 'Parada segura acionada durante a sessão'
+              : 'Falha técnica reportada na sessão'),
           correlationId,
         ]
       );
@@ -504,37 +481,17 @@ export async function submitSession(req: Request, res: Response): Promise<void> 
 
     await conn.commit();
 
-    const sessionRecord: SessionRecord = {
-      id: sessionId,
-      idempotencyKey,
-      correlationId,
-      userId,
-      userName: req.user!.name,
-      drillId: body.drillId,
-      drillTitle: drillRow?.title || body.drillId,
-      drillVersion: body.drillVersion || drillRow?.current_version || '1.0.0',
-      deviceCode: body.deviceCode || null,
-      audienceMode,
-      status: finalStatus as any,
-      startedAt: startedAt.toISOString(),
-      endedAt: endedAt.toISOString(),
-      durationSec,
-      score: Math.round(body.metrics.score),
-      maxStreak: Math.round(body.metrics.maxStreak || 0),
-      hits: Math.round(body.metrics.hits || 0),
-      misses: Math.round(body.metrics.misses || 0),
-      wrongHits: Math.round(body.metrics.wrongHits || 0),
-      accuracyPct,
-      avgReactionMs,
-      consistencyMs,
-      goalsMet: computedGoalsMet,
-      stopReason,
-      metrics: body.metrics,
-      telemetryIncluded: persistEvents,
-      motherSyncStatus: 'PENDING',
-      motherSyncId: null,
-      createdAt: new Date().toISOString(),
-    };
+    const [createdRows] = await pool.query<any[]>(
+      `SELECT s.*, u.name AS user_name, p.age_group AS user_age_group, d.title AS drill_title
+       FROM training_sessions s
+       JOIN users u ON u.id = s.user_id
+       LEFT JOIN player_profiles p ON p.user_id = s.user_id
+       LEFT JOIN drills d ON d.id = s.drill_id
+       WHERE s.id = ?`,
+      [sessionId]
+    );
+
+    const sessionRecord = mapRowToUnifiedSession(createdRows[0], resolvedUser, false);
 
     // 5. Encaminhar resumo (e telemetria autorizada) à Plataforma Mãe SmartTennis / Mock (RF19)
     const receipt = await forwardSessionToMotherPlatform({
@@ -554,7 +511,7 @@ export async function submitSession(req: Request, res: Response): Promise<void> 
     await logAuditEvent(
       finalStatus === 'EMERGENCY_STOP' ? 'SESSION_EMERGENCY_STOP' : 'SESSION_SYNC',
       userId,
-      req.user!.name,
+      resolvedUser.name,
       req.ip,
       `Sessão #${sessionId} (${body.drillId}) sincronizada — Status: ${finalStatus}, Score: ${sessionRecord.score}, Telemetria LGPD: ${persistEvents ? 'SIM' : 'NÃO'}`,
       {
@@ -572,11 +529,12 @@ export async function submitSession(req: Request, res: Response): Promise<void> 
       accuracyPct,
       avgReactionMs,
       wrongHits: sessionRecord.wrongHits,
-      hitsByTarget: body.metrics.hitsByTarget,
+      hitsByTarget: normalizedMetrics.hitsByTarget,
       isKids: audienceMode === 'KIDS',
     });
 
-    const response: SessionSubmissionResponse = {
+    const response: SessionSubmissionResponse & TrainingSessionRecord = {
+      ...sessionRecord,
       session: sessionRecord,
       idempotentReplay: false,
       telemetryPersisted: persistEvents,
@@ -592,65 +550,30 @@ export async function submitSession(req: Request, res: Response): Promise<void> 
     res.status(500).json({ error: 'Erro interno ao sincronizar resultados da sessão' });
   } finally {
     conn.release();
->>>>>>> 03e98db8d84f475b5e841e8cac192153a6d66d0c
   }
 }
 
 /**
-<<<<<<< HEAD
- * GET /api/sessions — Histórico de sessões por período, treino e atleta (RF13)
- */
-export async function listSessions(req: Request, res: Response): Promise<void> {
-  try {
-    const { drillId, periodDays, userId, limit } = req.query;
-
-    let sql = 'SELECT * FROM training_sessions WHERE 1=1';
-    const params: any[] = [];
-
-    if (drillId && drillId !== 'ALL') {
-      sql += ' AND drill_id = ?';
-      params.push(drillId);
-    }
-
-    if (userId) {
-      sql += ' AND user_id = ?';
-      params.push(Number(userId));
-    }
-
-    if (periodDays && Number(periodDays) > 0) {
-      sql += ' AND completed_at >= DATE_SUB(NOW(), INTERVAL ? DAY)';
-      params.push(Number(periodDays));
-    }
-
-    const maxRows = Math.min(100, Math.max(1, Number(limit) || 30));
-    sql += ' ORDER BY completed_at DESC LIMIT ?';
-    params.push(maxRows);
-
-    const [rows] = await pool.query<any[]>(sql, params);
-    res.json(rows.map(mapRowToSession));
-  } catch (err: any) {
-    console.error('Erro ao consultar histórico de sessões:', err);
-=======
  * GET /sessions
  * Consulta histórico de sessões com filtros por período, treino, status e atleta (RF13, RF17)
  */
 export async function listSessions(req: Request, res: Response): Promise<void> {
   try {
-    const { from, to, drillId, status, userId, anonymize, limit } = req.query;
+    const { from, to, periodDays, drillId, status, userId, anonymize, limit } = req.query;
     const anonymizeDemo = anonymize === 'true' || anonymize === '1';
 
     const conditions: string[] = [];
     const params: any[] = [];
 
-    if (req.user!.role === 'JOGADOR') {
+    if (req.user?.role === 'JOGADOR') {
       conditions.push('s.user_id = ?');
-      params.push(req.user!.id);
+      params.push(req.user.id);
     } else if (userId !== undefined && userId !== '') {
       conditions.push('s.user_id = ?');
       params.push(Number(userId));
     }
 
-    if (drillId && typeof drillId === 'string') {
+    if (drillId && typeof drillId === 'string' && drillId !== 'ALL') {
       conditions.push('s.drill_id = ?');
       params.push(drillId);
     }
@@ -658,6 +581,11 @@ export async function listSessions(req: Request, res: Response): Promise<void> {
     if (status && typeof status === 'string') {
       conditions.push('s.status = ?');
       params.push(status);
+    }
+
+    if (periodDays && Number(periodDays) > 0) {
+      conditions.push('s.started_at >= DATE_SUB(NOW(), INTERVAL ? DAY)');
+      params.push(Number(periodDays));
     }
 
     if (from && typeof from === 'string') {
@@ -685,39 +613,55 @@ export async function listSessions(req: Request, res: Response): Promise<void> {
       [...params, rowLimit]
     );
 
-    res.json(rows.map((r) => mapRowToSessionRecord(r, req.user!, anonymizeDemo)));
+    res.json(rows.map((r) => mapRowToUnifiedSession(r, req.user, anonymizeDemo)));
   } catch (err) {
     console.error('Erro ao consultar sessões:', err);
->>>>>>> 03e98db8d84f475b5e841e8cac192153a6d66d0c
     res.status(500).json({ error: 'Erro interno ao consultar histórico de sessões' });
   }
 }
 
 /**
-<<<<<<< HEAD
- * GET /api/sessions/stats — Indicadores de precisão, consistência, volume e progressão (RF13)
+ * GET /sessions/stats
+ * Indicadores resumidos de precisão, consistência, volume e progressão (RF13)
  */
 export async function getSessionStats(req: Request, res: Response): Promise<void> {
   try {
-    const { drillId, periodDays } = req.query;
+    const { drillId, periodDays, userId } = req.query;
 
-    let sql = 'SELECT * FROM training_sessions WHERE 1=1';
+    const conditions: string[] = [];
     const params: any[] = [];
 
-    if (drillId && drillId !== 'ALL') {
-      sql += ' AND drill_id = ?';
+    if (req.user?.role === 'JOGADOR') {
+      conditions.push('s.user_id = ?');
+      params.push(req.user.id);
+    } else if (userId !== undefined && userId !== '') {
+      conditions.push('s.user_id = ?');
+      params.push(Number(userId));
+    }
+
+    if (drillId && typeof drillId === 'string' && drillId !== 'ALL') {
+      conditions.push('s.drill_id = ?');
       params.push(drillId);
     }
 
     if (periodDays && Number(periodDays) > 0) {
-      sql += ' AND completed_at >= DATE_SUB(NOW(), INTERVAL ? DAY)';
+      conditions.push('s.started_at >= DATE_SUB(NOW(), INTERVAL ? DAY)');
       params.push(Number(periodDays));
     }
 
-    sql += ' ORDER BY completed_at ASC';
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const [rows] = await pool.query<any[]>(
+      `SELECT s.*, u.name AS user_name, p.age_group AS user_age_group, d.title AS drill_title
+       FROM training_sessions s
+       JOIN users u ON u.id = s.user_id
+       LEFT JOIN player_profiles p ON p.user_id = s.user_id
+       LEFT JOIN drills d ON d.id = s.drill_id
+       ${whereClause}
+       ORDER BY s.started_at ASC`,
+      params
+    );
 
-    const [rows] = await pool.query<any[]>(sql, params);
-    const sessions = rows.map(mapRowToSession);
+    const sessions = rows.map((r) => mapRowToUnifiedSession(r, req.user, false));
 
     if (sessions.length === 0) {
       const emptyStats: SessionStatsSummary = {
@@ -760,13 +704,11 @@ export async function getSessionStats(req: Request, res: Response): Promise<void
     const averageReactionTimeMs =
       reactionCount > 0 ? Math.round(sumReaction / reactionCount) : 0;
 
-    // Índice de consistência: 100 - desvio médio absoluto da precisão entre sessões
     const avgDeviation =
       sessions.reduce((acc, s) => acc + Math.abs(s.accuracyPct - averageAccuracyPct), 0) /
       sessions.length;
     const consistencyIndexPct = Math.max(0, Math.min(100, Math.round(100 - avgDeviation)));
 
-    // Progressão: diferença entre a média das últimas sessões e as primeiras
     const half = Math.max(1, Math.floor(sessions.length / 2));
     const firstHalfAvg =
       sessions.slice(0, half).reduce((a, b) => a + b.accuracyPct, 0) / half;
@@ -787,10 +729,13 @@ export async function getSessionStats(req: Request, res: Response): Promise<void
     };
 
     res.json(summary);
-  } catch (err: any) {
+  } catch (err) {
     console.error('Erro ao calcular estatísticas de sessões:', err);
     res.status(500).json({ error: 'Erro interno ao calcular indicadores de desempenho' });
-=======
+  }
+}
+
+/**
  * GET /sessions/analytics
  * Indicadores analíticos consolidados por período e treino: precisão, consistência, tempo, volume e progressão (RF13)
  */
@@ -799,16 +744,16 @@ export async function getSessionAnalytics(req: Request, res: Response): Promise<
     const { from, to, drillId, userId } = req.query;
 
     const targetUserId =
-      req.user!.role === 'JOGADOR'
-        ? req.user!.id
+      req.user?.role === 'JOGADOR'
+        ? req.user.id
         : userId
           ? Number(userId)
-          : req.user!.id;
+          : req.user?.id || 3;
 
     const conditions: string[] = ['s.user_id = ?'];
     const params: any[] = [targetUserId];
 
-    if (drillId && typeof drillId === 'string') {
+    if (drillId && typeof drillId === 'string' && drillId !== 'ALL') {
       conditions.push('s.drill_id = ?');
       params.push(drillId);
     }
@@ -953,13 +898,13 @@ export async function getSessionById(req: Request, res: Response): Promise<void>
     }
 
     const row = rows[0];
-    if (req.user!.role === 'JOGADOR' && row.user_id !== req.user!.id) {
+    if (req.user?.role === 'JOGADOR' && row.user_id !== req.user.id) {
       res.status(403).json({ error: 'Acesso negado a sessões de outros praticantes' });
       return;
     }
 
     const anonymizeDemo = req.query.anonymize === 'true' || req.query.anonymize === '1';
-    const session = mapRowToSessionRecord(row, req.user!, anonymizeDemo);
+    const session = mapRowToUnifiedSession(row, req.user, anonymizeDemo);
 
     const [eventRows] = await pool.query<any[]>(
       `SELECT event_index, event_type, step_number, target_id, expected_target_id,
@@ -989,6 +934,5 @@ export async function getSessionById(req: Request, res: Response): Promise<void>
   } catch (err) {
     console.error('Erro ao buscar detalhes da sessão:', err);
     res.status(500).json({ error: 'Erro interno ao buscar detalhes da sessão' });
->>>>>>> 03e98db8d84f475b5e841e8cac192153a6d66d0c
   }
 }

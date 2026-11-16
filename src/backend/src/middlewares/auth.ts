@@ -75,13 +75,10 @@ export async function authenticateToken(
   }
 }
 
-<<<<<<< HEAD
-=======
 /**
  * Autenticação opcional: popula `req.user` quando um JWT válido é fornecido,
  * mas não bloqueia visitantes anônimos (útil para catálogo público RF18).
  */
->>>>>>> 03e98db8d84f475b5e841e8cac192153a6d66d0c
 export async function optionalAuthenticateToken(
   req: Request,
   _res: Response,
@@ -90,11 +87,7 @@ export async function optionalAuthenticateToken(
   const authHeader = req.headers.authorization;
   const token = authHeader && authHeader.split(' ')[1];
 
-<<<<<<< HEAD
-  if (!token) {
-=======
   if (!token || isJwtTokenRevoked(token)) {
->>>>>>> 03e98db8d84f475b5e841e8cac192153a6d66d0c
     next();
     return;
   }
@@ -104,10 +97,7 @@ export async function optionalAuthenticateToken(
       id: number;
       email: string;
       role: UserRole;
-<<<<<<< HEAD
-=======
       exp?: number;
->>>>>>> 03e98db8d84f475b5e841e8cac192153a6d66d0c
     };
 
     const [rows] = await pool.query<any[]>(
@@ -123,17 +113,11 @@ export async function optionalAuthenticateToken(
         email: user.email,
         role: user.role,
       };
-<<<<<<< HEAD
-    }
-  } catch {
-    // Segue sem usuário autenticado
-=======
       req.rawToken = token;
       req.tokenExp = payload.exp;
     }
   } catch {
     // Ignora token inválido na leitura pública
->>>>>>> 03e98db8d84f475b5e841e8cac192153a6d66d0c
   }
 
   next();

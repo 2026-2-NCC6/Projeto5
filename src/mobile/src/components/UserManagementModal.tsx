@@ -310,11 +310,6 @@ export function ManagementView({
         name: profName.trim(),
         skillLevel: profSkill,
         ageGroup: profAge,
-<<<<<<< HEAD
-        trainingGoals: profGoals,
-        preferences: profPrefs,
-        physicalRestrictions: profRestr,
-=======
         // Envia null quando limpo para atualizar de fato no MySQL (correção RF02)
         trainingGoals: profGoals.trim() || null,
         preferences: profPrefs.trim() || null,
@@ -322,7 +317,6 @@ export function ManagementView({
         guardianName: profAge === 'KIDS' ? profGuardian.trim() : null,
         guardianConsent: profAge === 'KIDS' ? profGuardianConsent : false,
         telemetryConsent: profTelemetryConsent,
->>>>>>> 03e98db8d84f475b5e841e8cac192153a6d66d0c
       });
       setFeedbackMsg('✓ Perfil esportivo e preferências LGPD (RF02) salvos no MySQL!');
       setShowProfileEditor(false);
@@ -550,11 +544,7 @@ export function ManagementView({
               />
             </View>
 
-<<<<<<< HEAD
-            <View style={[styles.quickFormRow, isMobile && { flexDirection: 'column', alignItems: 'stretch' }, { marginTop: 8 }]}>
-=======
             <View style={[styles.quickFormRow, { marginTop: 8 }, isMobile && { flexDirection: 'column', alignItems: 'stretch' }]}>
->>>>>>> 03e98db8d84f475b5e841e8cac192153a6d66d0c
               <TextInput
                 style={[
                   styles.formInput,
@@ -563,11 +553,7 @@ export function ManagementView({
                 ]}
                 value={profPrefs}
                 onChangeText={setProfPrefs}
-<<<<<<< HEAD
                 placeholder="Preferências de treino / ritmo / feedbacks (RF02)"
-=======
-                placeholder="Preferências (ex: Séries rápidas, estímulo visual)"
->>>>>>> 03e98db8d84f475b5e841e8cac192153a6d66d0c
                 placeholderTextColor={theme.textMuted}
               />
               <TextInput
@@ -578,17 +564,11 @@ export function ManagementView({
                 ]}
                 value={profRestr}
                 onChangeText={setProfRestr}
-<<<<<<< HEAD
                 placeholder="Restrições físicas / observações LGPD (RF02)"
-=======
-                placeholder="Restrições físicas / observações (opcional)"
->>>>>>> 03e98db8d84f475b5e841e8cac192153a6d66d0c
                 placeholderTextColor={theme.textMuted}
               />
             </View>
 
-<<<<<<< HEAD
-=======
             {profAge === 'KIDS' && (
               <View style={[styles.quickFormRow, { marginTop: 8 }, isMobile && { flexDirection: 'column', alignItems: 'stretch' }]}>
                 <TextInput
@@ -628,8 +608,6 @@ export function ManagementView({
                 </TouchableOpacity>
               </View>
             )}
-
->>>>>>> 03e98db8d84f475b5e841e8cac192153a6d66d0c
             <View style={[styles.quickFormRow, { marginTop: 8 }]}>
               {(['KIDS', 'ADULTO'] as AgeGroup[]).map((ag) => (
                 <TouchableOpacity

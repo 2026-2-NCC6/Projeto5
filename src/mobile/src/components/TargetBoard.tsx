@@ -1,10 +1,7 @@
 /**
  * Smart Tennis Arena — Quadra Interativa • Matriz de Sensores (TargetBoard)
-<<<<<<< HEAD
- * Alinhado com RF06 (Iniciar, Pausar, Retomar, Encerrar), RF08, RF09 (Máquina/Simulador), RF11 e RF22
-=======
- * Alinhado com: RF06 (Pausar, Retomar, Abortar e Execução), RF08 (Atuadores) e RF22 (Parada Segura)
->>>>>>> 03e98db8d84f475b5e841e8cac192153a6d66d0c
+ * Alinhado com: RF06 (Iniciar, Pausar, Retomar, Encerrar), RF08 (Atuadores),
+ * RF09 (Máquina/Simulador), RF11 (Kids/Pro) e RF22 (Parada Segura)
  */
 
 import React from 'react';
@@ -39,11 +36,7 @@ interface TargetBoardProps {
   onPauseSession?: () => void;
   onResumeSession?: () => void;
   onAbortSession?: () => void;
-<<<<<<< HEAD
-  onTriggerStop: () => void;
-=======
   onTriggerStop: (reason?: string) => void;
->>>>>>> 03e98db8d84f475b5e841e8cac192153a6d66d0c
   onResetStop: () => void;
   onViewSummary: () => void;
 }
@@ -51,13 +44,10 @@ interface TargetBoardProps {
 export const TargetBoard: React.FC<TargetBoardProps> = ({
   activeTarget,
   ledCount,
-<<<<<<< HEAD
   remainingMs,
   totalMs,
   currentBallSpeedKmh = 85,
   currentSpinType = 'FLAT',
-=======
->>>>>>> 03e98db8d84f475b5e841e8cac192153a6d66d0c
   lastHitTarget,
   lastHitResult,
   isKidsMode,
@@ -84,7 +74,8 @@ export const TargetBoard: React.FC<TargetBoardProps> = ({
     gameState === GameState.TARGET_MISS_TIMEOUT ||
     isPaused;
 
-  const isPaused = gameState === GameState.PAUSED;
+  const progressRatio =
+    totalMs > 0 ? Math.max(0, Math.min(1, remainingMs / totalMs)) : 0;
 
   const renderSensorModule = (targetId: TargetId, isCenter: boolean = false) => {
     const isActive = activeTarget === targetId;
@@ -94,25 +85,17 @@ export const TargetBoard: React.FC<TargetBoardProps> = ({
     let bgColor = theme.surface;
 
     if (isActive) {
-<<<<<<< HEAD
-      cardBg = isPaused ? theme.warning : theme.primary;
-      cardBorder = isPaused ? theme.warningBorder : theme.primaryDark;
-      titleColor = '#FFFFFF';
-      subColor = isPaused ? '#FEF3C7' : '#D1FAE5';
-      ringBg = 'rgba(255,255,255,0.18)';
-      statusBadgeText = isPaused
-        ? '⏸ PAUSADO'
+      borderColor = isPaused
+        ? theme.warningBorder
         : isKidsMode
-        ? '⭐ BATA!'
-        : `${(remainingMs / 1000).toFixed(1)}s`;
-      statusBadgeBg = '#FFFFFF';
-      statusBadgeColor = isPaused ? theme.warning : theme.primaryDark;
-    } else if (isRecentHit) {
-=======
-      borderColor = isKidsMode ? '#F59E0B' : theme.primary;
-      bgColor = isKidsMode ? '#FEF3C7' : theme.surfaceMint;
+        ? '#F59E0B'
+        : theme.primary;
+      bgColor = isPaused
+        ? theme.warningSoft
+        : isKidsMode
+        ? '#FEF3C7'
+        : theme.surfaceMint;
     } else if (isLastHit) {
->>>>>>> 03e98db8d84f475b5e841e8cac192153a6d66d0c
       if (lastHitResult === 'HIT') {
         borderColor = theme.primary;
         bgColor = theme.surfaceMint;
@@ -191,29 +174,6 @@ export const TargetBoard: React.FC<TargetBoardProps> = ({
           {TARGET_TACTICAL_NAMES[targetId]}
         </Text>
 
-<<<<<<< HEAD
-          <View style={styles.sensorInfo}>
-            <Text
-              style={[
-                styles.sensorTitle,
-                { color: titleColor, fontSize: fs(14) },
-              ]}
-            >
-              {isKidsMode ? `Alvo Mágico ${id}` : TARGET_TACTICAL_NAMES[id]}
-            </Text>
-            <Text
-              style={[
-                styles.sensorHint,
-                { color: subColor, fontSize: fs(11) },
-              ]}
-            >
-              {isActive
-                ? isPaused
-                  ? 'Sessão pausada — clique em Retomar'
-                  : 'Toque para simular impacto piezo'
-                : '8 LEDs • Sensor Piezo ADC'}
-            </Text>
-=======
         {isActive && (
           <View style={styles.ledRingRow}>
             {Array.from({ length: 8 }).map((_, idx) => (
@@ -232,7 +192,6 @@ export const TargetBoard: React.FC<TargetBoardProps> = ({
                 ]}
               />
             ))}
->>>>>>> 03e98db8d84f475b5e841e8cac192153a6d66d0c
           </View>
         )}
       </TouchableOpacity>
@@ -307,12 +266,17 @@ export const TargetBoard: React.FC<TargetBoardProps> = ({
         </View>
       </View>
 
-<<<<<<< HEAD
       {/* Barra de Janela Temporal Ativa + Telemetria da Máquina Lançadora (RF06 & RF09) */}
       {isPlaying && (
         <View style={styles.timerBarContainer}>
           <View style={styles.timerLabelRow}>
-            <Text style={{ color: isPaused ? theme.warning : theme.primaryDark, fontWeight: '700', fontSize: fs(11) }}>
+            <Text
+              style={{
+                color: isPaused ? theme.warning : theme.primaryDark,
+                fontWeight: '700',
+                fontSize: fs(11),
+              }}
+            >
               {isPaused
                 ? `⏸ Treino Pausado (Alvo #0${activeTarget || '-'})`
                 : `Alvo #0${activeTarget || '-'} ativo • 🎾 Lançadora: ${currentBallSpeedKmh} km/h (${currentSpinType})`}
@@ -397,23 +361,8 @@ export const TargetBoard: React.FC<TargetBoardProps> = ({
         </View>
       )}
 
-      {/* Superfície da Quadra (Geometria 2 - 1 - 2 preservada em todas as telas) */}
-      <View
-        style={[
-          styles.courtSurface,
-          {
-            backgroundColor: theme.bg,
-            borderColor: theme.primaryBorder,
-            padding: isMobile ? 10 : 16,
-            gap: isMobile ? 10 : 14,
-          },
-        ]}
-      >
-        {/* Linha de Fundo Superior */}
-=======
       {/* Grid da Quadra: 2 Alvos Superiores, 1 Central, 2 Inferiores */}
       <View style={styles.courtArea}>
->>>>>>> 03e98db8d84f475b5e841e8cac192153a6d66d0c
         <View style={[styles.courtGridRow, { gap: isMobile ? 8 : 14 }]}>
           {renderSensorModule(1)}
           {renderSensorModule(2)}
@@ -431,48 +380,14 @@ export const TargetBoard: React.FC<TargetBoardProps> = ({
         </View>
       </View>
 
-<<<<<<< HEAD
-      {/* Barra de Controles de Execução da Sessão e Segurança (RF06 & RF22) */}
-=======
       {/* Barra de Controles de Ação e Segurança (RF06, RF22) */}
->>>>>>> 03e98db8d84f475b5e841e8cac192153a6d66d0c
       <View
         style={[
           styles.footerControls,
           isMobile && { flexDirection: 'column', alignItems: 'stretch', gap: 8, marginTop: 10 },
         ]}
       >
-<<<<<<< HEAD
-        <TouchableOpacity
-          accessibilityRole="button"
-          accessibilityLabel="Iniciar Sessão de Treino"
-          activeOpacity={0.85}
-          style={[
-            styles.startButton,
-            isMobile && { width: '100%', minWidth: 0 },
-            {
-              backgroundColor: isPlaying ? theme.primaryDark : theme.primary,
-              opacity: gameState === GameState.COUNTDOWN ? 0.65 : 1,
-            },
-          ]}
-          disabled={gameState === GameState.COUNTDOWN}
-          onPress={onStartSession}
-        >
-          {isPlaying ? (
-            <TargetIcon size={17} color="#FFFFFF" />
-          ) : (
-            <PlayIcon size={15} color="#FFFFFF" />
-          )}
-          <Text style={[styles.startButtonText, { fontSize: fs(14) }]}>
-            {isPlaying
-              ? 'Reiniciar Protocolo'
-              : gameState === GameState.COUNTDOWN
-              ? 'Iniciando Contagem...'
-              : 'Iniciar Sessão de Treino'}
-          </Text>
-        </TouchableOpacity>
-=======
-        {!isPlaying && !isPaused ? (
+        {!isPlaying ? (
           <View style={[styles.idleActionsWrap, isMobile && { width: '100%' }]}>
             <TouchableOpacity
               accessibilityRole="button"
@@ -517,7 +432,7 @@ export const TargetBoard: React.FC<TargetBoardProps> = ({
           </View>
         ) : (
           <View style={[styles.runningControlsRow, isMobile && { width: '100%' }]}>
-            {isPlaying && onPauseSession && (
+            {!isPaused && onPauseSession && (
               <TouchableOpacity
                 activeOpacity={0.8}
                 style={[
@@ -564,62 +479,6 @@ export const TargetBoard: React.FC<TargetBoardProps> = ({
                 </Text>
               </TouchableOpacity>
             )}
-          </View>
-        )}
->>>>>>> 03e98db8d84f475b5e841e8cac192153a6d66d0c
-
-        {/* Botões de Pausar / Retomar e Encerrar durante a sessão (RF06) */}
-        {isPlaying && (
-          <View style={[styles.sessionActionGroup, isMobile && { width: '100%' }]}>
-            <TouchableOpacity
-              accessibilityRole="button"
-              accessibilityLabel={isPaused ? 'Retomar sessão' : 'Pausar sessão'}
-              activeOpacity={0.85}
-              style={[
-                styles.secondarySessionBtn,
-                isMobile && { flex: 1 },
-                {
-                  backgroundColor: isPaused ? theme.primarySoft : theme.warningSoft,
-                  borderColor: isPaused ? theme.primary : theme.warningBorder,
-                },
-              ]}
-              onPress={isPaused ? onResumeSession : onPauseSession}
-            >
-              <Text
-                style={{
-                  color: isPaused ? theme.primaryDark : theme.warning,
-                  fontWeight: '800',
-                  fontSize: fs(13),
-                }}
-              >
-                {isPaused ? '▶ Retomar' : '⏸ Pausar'}
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              accessibilityRole="button"
-              accessibilityLabel="Encerrar sessão de treino"
-              activeOpacity={0.85}
-              style={[
-                styles.secondarySessionBtn,
-                isMobile && { flex: 1 },
-                {
-                  backgroundColor: theme.surfaceMuted,
-                  borderColor: theme.borderNeutral,
-                },
-              ]}
-              onPress={onAbortSession}
-            >
-              <Text
-                style={{
-                  color: theme.textSecondary,
-                  fontWeight: '800',
-                  fontSize: fs(13),
-                }}
-              >
-                ⏹ Encerrar
-              </Text>
-            </TouchableOpacity>
           </View>
         )}
 
@@ -672,7 +531,6 @@ const styles = StyleSheet.create({
   modePillText: {
     fontWeight: '700',
   },
-<<<<<<< HEAD
   timerBarContainer: {
     marginBottom: 12,
   },
@@ -722,13 +580,8 @@ const styles = StyleSheet.create({
     paddingVertical: 9,
     borderRadius: 10,
   },
-  courtSurface: {
-    borderRadius: 16,
-    borderWidth: 1.5,
-=======
   courtArea: {
     paddingVertical: 2,
->>>>>>> 03e98db8d84f475b5e841e8cac192153a6d66d0c
   },
   courtGridRow: {
     flexDirection: 'row',
@@ -783,14 +636,9 @@ const styles = StyleSheet.create({
   },
   footerControls: {
     flexDirection: 'row',
-<<<<<<< HEAD
-    flexWrap: 'wrap',
-    gap: 10,
-    marginTop: 16,
-=======
     justifyContent: 'space-between',
->>>>>>> 03e98db8d84f475b5e841e8cac192153a6d66d0c
     alignItems: 'center',
+    flexWrap: 'wrap',
     marginTop: 14,
     gap: 10,
   },
@@ -800,18 +648,6 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   startButton: {
-<<<<<<< HEAD
-    flex: 1,
-    minWidth: 185,
-    minHeight: 48,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 9,
-    paddingVertical: 13,
-    paddingHorizontal: 18,
-    borderRadius: 12,
-=======
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -820,27 +656,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     borderRadius: 10,
     minWidth: 220,
->>>>>>> 03e98db8d84f475b5e841e8cac192153a6d66d0c
   },
   startButtonText: {
     color: '#FFF',
     fontWeight: '800',
   },
-<<<<<<< HEAD
-  sessionActionGroup: {
-    flexDirection: 'row',
-    gap: 8,
-    alignItems: 'center',
-  },
-  secondarySessionBtn: {
-    minHeight: 48,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    borderRadius: 12,
-    borderWidth: 1.5,
-    alignItems: 'center',
-    justifyContent: 'center',
-=======
   summaryBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -882,6 +702,5 @@ const styles = StyleSheet.create({
   },
   abortBtnText: {
     fontWeight: '600',
->>>>>>> 03e98db8d84f475b5e841e8cac192153a6d66d0c
   },
 });

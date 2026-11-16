@@ -103,12 +103,12 @@ function MainWorkspace() {
 
   const [activeTab, setActiveTab] = useState<AppTab>('ARENA');
   const [profilesCount, setProfilesCount] = useState<number>(4);
-<<<<<<< HEAD
   const [catalogDrills, setCatalogDrills] = useState<DrillDefinition[]>(DEFAULT_DRILLS);
   const [catalogSource, setCatalogSource] = useState<'API' | 'CACHE_OFFLINE'>('API');
   const [editorTargetDrill, setEditorTargetDrill] = useState<DrillDefinition | null>(
     DEFAULT_DRILLS[1] || DEFAULT_DRILLS[0]
   );
+  const [showPrepModal, setShowPrepModal] = useState<boolean>(false);
 
   // Carrega catálogo de treinos da API REST ou Cache Offline (RF03, RF18, RF21)
   useEffect(() => {
@@ -117,9 +117,6 @@ function MainWorkspace() {
       setCatalogSource(source);
     });
   }, []);
-=======
-  const [showPrepModal, setShowPrepModal] = useState<boolean>(false);
->>>>>>> 03e98db8d84f475b5e841e8cac192153a6d66d0c
 
   // Sincronização automática do perfil do praticante (RF02) com o modo do jogo (RF11)
   useEffect(() => {
@@ -811,11 +808,7 @@ function MainWorkspace() {
                     emergencyAlert={state.emergencyAlert}
                     onToggleMode={actions.setIsKidsMode}
                     onTargetPress={actions.tapTargetSimulated}
-<<<<<<< HEAD
-                    onStartSession={actions.startSession}
-=======
                     onStartSession={() => setShowPrepModal(true)}
->>>>>>> 03e98db8d84f475b5e841e8cac192153a6d66d0c
                     onPauseSession={actions.pauseSession}
                     onResumeSession={actions.resumeSession}
                     onAbortSession={actions.abortSession}
@@ -832,14 +825,11 @@ function MainWorkspace() {
                     drillsList={catalogDrills}
                     catalogSource={catalogSource}
                     onSelectDrill={actions.setSelectedDrill}
-<<<<<<< HEAD
+                    onStartDrill={() => setShowPrepModal(true)}
                     onOpenEditor={(drillToEdit) => {
                       setEditorTargetDrill(drillToEdit || null);
                       setActiveTab('EDITOR');
                     }}
-=======
-                    onStartDrill={() => setShowPrepModal(true)}
->>>>>>> 03e98db8d84f475b5e841e8cac192153a6d66d0c
                   />
                 </View>
               </View>

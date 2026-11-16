@@ -10,14 +10,6 @@ import {
   serializeSerialCommand,
 } from '../src/protocol/serial.ts';
 import {
-<<<<<<< HEAD
-  validateDrillDefinition,
-  bumpDrillVersion,
-  DEFAULT_DRILLS,
-  DrillCategory,
-  DrillDifficulty,
-} from '../src/contracts/drills.ts';
-=======
   isValidEmail,
   sanitizeOptionalText,
   validateRegistrationPayload,
@@ -28,10 +20,10 @@ import {
   DrillCategory,
   DrillDifficulty,
   validateDrillDefinition,
+  bumpDrillVersion,
 } from '../src/contracts/drills.ts';
 import { computeSessionAnalyticalIndicators } from '../src/contracts/sessions.ts';
 import type { UserWithProfile } from '../src/contracts/user.ts';
->>>>>>> 03e98db8d84f475b5e841e8cac192153a6d66d0c
 
 test('RN03: Multiplicador de streak cresce até 1.5x aos 5 acertos', () => {
   assert.equal(getStreakMultiplier(0), 1.0);
@@ -186,34 +178,6 @@ test('Serializador: gera quadros JSON com delimitador newline para todos os coma
   assert.equal(emgCmd, '!EMG\n');
 });
 
-<<<<<<< HEAD
-test('RF15: Validador de treinos aprova DEFAULT_DRILLS e rejeita parâmetros inseguros', () => {
-  for (const drill of DEFAULT_DRILLS) {
-    const check = validateDrillDefinition(drill);
-    assert.equal(check.valid, true, `Treino ${drill.id} deveria ser válido`);
-    assert.equal(check.errors.length, 0);
-  }
-
-  const invalidCheck = validateDrillDefinition({
-    title: 'Ab',
-    description: 'Curto',
-    authorName: '',
-    version: 'invalida',
-    category: DrillCategory.PRECISION,
-    difficulty: DrillDifficulty.BEGINNER,
-    isKidsAdapted: true,
-    steps: [{ stepNumber: 1, targetId: 5, durationMs: 300, ballSpeedKmh: 200 }],
-  });
-
-  assert.equal(invalidCheck.valid, false);
-  assert.ok(invalidCheck.errors.length >= 4);
-});
-
-test('RF16: Versionamento semântico incrementa PATCH, MINOR e MAJOR corretamente', () => {
-  assert.equal(bumpDrillVersion('1.0.0', 'PATCH'), '1.0.1');
-  assert.equal(bumpDrillVersion('1.0.0', 'MINOR'), '1.1.0');
-  assert.equal(bumpDrillVersion('1.2.3', 'MAJOR'), '2.0.0');
-=======
 test('RF01 / OWASP A01: Auto-cadastro bloqueia escalonamento de privilégio para ADMIN e TREINADOR', () => {
   const playerOk = validateRegistrationPayload({
     name: 'Atleta Teste',
@@ -342,6 +306,7 @@ test('RF15 / RF16: Todos os DEFAULT_DRILLS passam na validação formal e limite
     const res = validateDrillDefinition(drill);
     assert.equal(res.valid, true, `Treino ${drill.id} falhou na validação: ${res.errors.join('; ')}`);
     assert.ok(res.computedDurationSec >= 10);
+    assert.ok(res.estimatedDurationSec >= 5);
   }
 
   // Bloqueio de velocidade insegura (> 65 km/h) em treino infantil (Modo Kids)
@@ -356,16 +321,25 @@ test('RF15 / RF16: Todos os DEFAULT_DRILLS passam na validação formal e limite
   assert.equal(unsafeKids.valid, false);
   assert.ok(unsafeKids.errors.some((e) => e.includes('65 km/h')));
 
-  // Bloqueio de janela fora do intervalo da FSM (< 800ms)
-  const invalidWindow = validateDrillDefinition({
-    title: 'Janela Impossível',
-    description: 'Teste de validação de janela de sensor IoT.',
-    category: DrillCategory.REACTION,
-    difficulty: DrillDifficulty.PRO,
-    isKidsAdapted: false,
-    steps: [{ stepNumber: 1, targetId: 2, durationMs: 300 }],
+  // Bloqueio de janela fora do intervalo da FSM (< 800ms) e metadados inválidos
+  const invalidCheck = validateDrillDefinition({
+    title: 'Ab',
+    description: 'Curto',
+    authorName: '',
+    version: 'invalida',
+    category: DrillCategory.PRECISION,
+    difficulty: DrillDifficulty.BEGINNER,
+    isKidsAdapted: true,
+    steps: [{ stepNumber: 1, targetId: 5, durationMs: 300, ballSpeedKmh: 200 }],
   });
-  assert.equal(invalidWindow.valid, false);
+  assert.equal(invalidCheck.valid, false);
+  assert.ok(invalidCheck.errors.length >= 4);
+});
+
+test('RF16: Versionamento semântico incrementa PATCH, MINOR e MAJOR corretamente', () => {
+  assert.equal(bumpDrillVersion('1.0.0', 'PATCH'), '1.0.1');
+  assert.equal(bumpDrillVersion('1.0.0', 'MINOR'), '1.1.0');
+  assert.equal(bumpDrillVersion('1.2.3', 'MAJOR'), '2.0.0');
 });
 
 test('RF13 / RF19: Cálculo determinístico de precisão (%) e consistência (desvio-padrão ms)', () => {
@@ -385,5 +359,4 @@ test('RF13 / RF19: Cálculo determinístico de precisão (%) e consistência (de
   assert.equal(ind.accuracyPct, 75);
   // Média = 1000; variância = ((0 + 40000 + 40000 + 0) / 4) = 20000; sqrt(20000) ≈ 141ms
   assert.equal(ind.consistencyMs, 141);
->>>>>>> 03e98db8d84f475b5e841e8cac192153a6d66d0c
 });

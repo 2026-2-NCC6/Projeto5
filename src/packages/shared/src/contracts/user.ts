@@ -157,7 +157,7 @@ export interface CreateSessionDto {
   accuracyPct: number;
   averageReactionTimeMs: number;
   durationSec: number;
-  hardwareMode: 'WEB_SERIAL' | 'MOCK';
+  hardwareMode: 'WEB_SERIAL' | 'REMOTE_GATEWAY' | 'MOCK';
   zoneAnalytics: SessionZoneStat;
   eventsTelemetry?: SessionEventLogItem[];
   telemetryAuthorized?: boolean; // Proteção LGPD / Coleta mínima para menores

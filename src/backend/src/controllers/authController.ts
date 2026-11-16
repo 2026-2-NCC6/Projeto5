@@ -425,7 +425,6 @@ export async function updateProfile(req: Request, res: Response): Promise<void> 
   }
 }
 
-<<<<<<< HEAD
 export async function resetPassword(req: Request, res: Response): Promise<void> {
   const body: ResetPasswordDto = req.body;
   const ip = req.ip || req.socket.remoteAddress || 'unknown';
@@ -468,7 +467,9 @@ export async function resetPassword(req: Request, res: Response): Promise<void> 
   } catch (err: any) {
     console.error('Erro ao redefinir senha:', err);
     res.status(500).json({ error: 'Erro interno ao redefinir senha' });
-=======
+  }
+}
+
 /**
  * Direito de eliminação dos dados pessoais pelo titular (LGPD - Seção 5)
  */
@@ -521,6 +522,5 @@ export async function deleteMyAccount(req: Request, res: Response): Promise<void
   } catch (err: any) {
     console.error('Erro ao excluir própria conta (LGPD):', err);
     res.status(500).json({ error: 'Erro interno ao excluir conta' });
->>>>>>> 03e98db8d84f475b5e841e8cac192153a6d66d0c
   }
 }

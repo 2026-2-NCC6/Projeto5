@@ -60,6 +60,7 @@ const STATUS_BADGE_MAP: Record<
 > = {
   DRAFT: { label: 'RASCUNHO (DRAFT)' },
   REVIEW: { label: 'EM REVISÃO (QA)' },
+  IN_REVIEW: { label: 'EM REVISÃO (QA)' },
   PUBLISHED: { label: 'PUBLICADO (API)', isPublished: true },
   ARCHIVED: { label: 'ARQUIVADO' },
 };

@@ -73,16 +73,13 @@ export function AuthView({ onAuthSuccess }: AuthViewProps) {
   const [regGuardianConsent, setRegGuardianConsent] = useState(false);
   const [regTelemetryConsent, setRegTelemetryConsent] = useState(true);
 
-<<<<<<< HEAD
   // Recuperação de Senha (Estado Formal q3: Recuperando_Senha - Entrega 1 Teoria da Computação)
   const [isRecoveringPassword, setIsRecoveringPassword] = useState(false);
   const [resetEmail, setResetEmail] = useState('jogador@smarttennis.com');
   const [resetNewPassword, setResetNewPassword] = useState('');
   const [isResetting, setIsResetting] = useState(false);
 
-=======
   const [confirmDeleteStep, setConfirmDeleteStep] = useState(false);
->>>>>>> 03e98db8d84f475b5e841e8cac192153a6d66d0c
   const [localMsg, setLocalMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
@@ -171,18 +168,12 @@ export function AuthView({ onAuthSuccess }: AuthViewProps) {
         password: regPassword,
         ageGroup: regAgeGroup,
         skillLevel: regSkillLevel,
-<<<<<<< HEAD
-        trainingGoals: regGoals || undefined,
-        preferences: regPreferences || undefined,
-        physicalRestrictions: regRestrictions || undefined,
-=======
         trainingGoals: regGoals.trim() || null,
         preferences: regPreferences.trim() || null,
         physicalRestrictions: regRestrictions.trim() || null,
         guardianName: regAgeGroup === 'KIDS' ? regGuardianName.trim() : null,
         guardianConsent: regAgeGroup === 'KIDS' ? regGuardianConsent : false,
         telemetryConsent: regTelemetryConsent,
->>>>>>> 03e98db8d84f475b5e841e8cac192153a6d66d0c
       });
       onAuthSuccess?.();
     } catch {
@@ -190,7 +181,6 @@ export function AuthView({ onAuthSuccess }: AuthViewProps) {
     }
   };
 
-<<<<<<< HEAD
   const handleResetPassword = async () => {
     clearError();
     setLocalMsg(null);
@@ -218,7 +208,9 @@ export function AuthView({ onAuthSuccess }: AuthViewProps) {
       setLocalMsg(err.message || 'Falha ao redefinir senha');
     } finally {
       setIsResetting(false);
-=======
+    }
+  };
+
   const handleSelfDelete = async () => {
     if (!user) return;
     if (DEMO_PROTECTED_EMAILS.has(user.email.toLowerCase())) {
@@ -240,7 +232,6 @@ export function AuthView({ onAuthSuccess }: AuthViewProps) {
       setSuccessMsg('Seus dados pessoais foram eliminados com sucesso (LGPD).');
     } catch {
       setConfirmDeleteStep(false);
->>>>>>> 03e98db8d84f475b5e841e8cac192153a6d66d0c
     }
   };
 
@@ -398,11 +389,7 @@ export function AuthView({ onAuthSuccess }: AuthViewProps) {
                 fontSize: fs(12),
               }}
             >
-<<<<<<< HEAD
               ✓ {successMsg}
-=======
-              {successMsg}
->>>>>>> 03e98db8d84f475b5e841e8cac192153a6d66d0c
             </Text>
           </View>
         )}
