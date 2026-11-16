@@ -12,6 +12,7 @@ import { useGameEngine } from './src/fsm/useGameEngine';
 import { TargetBoard } from './src/components/TargetBoard';
 import { ScoreHUD } from './src/components/ScoreHUD';
 import { DrillCatalogCard } from './src/components/DrillCatalogCard';
+import { DrillEditorView } from './src/components/DrillEditorModal';
 import { SessionSummaryView } from './src/components/SessionSummaryModal';
 import { HardwareView } from './src/components/HardwareModal';
 import { ManagementView } from './src/components/UserManagementModal';
@@ -23,11 +24,13 @@ import {
   useAccessibility,
 } from './src/context/AccessibilityContext';
 import { hardwareManager } from './src/hardware/hardwareManager';
-import { DEFAULT_DRILLS } from '../packages/shared/src/contracts/drills';
+import { api } from './src/services/api';
+import { DEFAULT_DRILLS, DrillDefinition } from '../packages/shared/src/contracts/drills';
 import { GameState } from '../packages/shared/src/fsm/types';
 import {
   TargetIcon,
   AwardIcon,
+  SlidersIcon,
   CpuIcon,
   UsersIcon,
   LockIcon,
@@ -36,7 +39,7 @@ import {
   VolumeMuteIcon,
 } from './src/components/Icons';
 
-type AppTab = 'ARENA' | 'SUMMARY' | 'HARDWARE' | 'MANAGEMENT' | 'AUTH';
+type AppTab = 'ARENA' | 'SUMMARY' | 'EDITOR' | 'HARDWARE' | 'MANAGEMENT' | 'AUTH';
 
 function getInitials(name: string): string {
   const parts = name.trim().split(/\s+/);
@@ -56,6 +59,8 @@ function getShortFsmTag(gs: GameState): string {
       return 'HIT';
     case GameState.TARGET_MISS_TIMEOUT:
       return 'MISS';
+    case GameState.PAUSED:
+      return 'PAUS';
     case GameState.COMPLETED:
       return 'DONE';
     case GameState.EMERGENCY_STOP:
@@ -66,8 +71,11 @@ function getShortFsmTag(gs: GameState): string {
 }
 
 function MainWorkspace() {
-  const { state, actions } = useGameEngine();
   const { user } = useAuth();
+  const { state, actions } = useGameEngine(
+    hardwareManager,
+    user ? user.name : 'Praticante Convidado'
+  );
   const {
     theme,
     fs,
@@ -91,6 +99,19 @@ function MainWorkspace() {
 
   const [activeTab, setActiveTab] = useState<AppTab>('ARENA');
   const [profilesCount, setProfilesCount] = useState<number>(4);
+  const [catalogDrills, setCatalogDrills] = useState<DrillDefinition[]>(DEFAULT_DRILLS);
+  const [catalogSource, setCatalogSource] = useState<'API' | 'CACHE_OFFLINE'>('API');
+  const [editorTargetDrill, setEditorTargetDrill] = useState<DrillDefinition | null>(
+    DEFAULT_DRILLS[1] || DEFAULT_DRILLS[0]
+  );
+
+  // Carrega catálogo de treinos da API REST ou Cache Offline (RF03, RF18, RF21)
+  useEffect(() => {
+    api.listDrills().then(({ drills, source }) => {
+      setCatalogDrills(drills);
+      setCatalogSource(source);
+    });
+  }, []);
 
   // Sincronização automática do perfil do praticante (RF02) com o modo do jogo (RF11)
   useEffect(() => {
@@ -164,28 +185,35 @@ function MainWorkspace() {
     },
     {
       key: 'SUMMARY',
-      label: '2. Resumo da Sessão',
+      label: '2. Resumo & Histórico',
       mobileLabel: 'Resumo',
       badge: `${accuracyPct}%`,
       renderIcon: (color, size = 16) => <AwardIcon size={size} color={color} />,
     },
     {
+      key: 'EDITOR',
+      label: '3. Editor & Marketplace',
+      mobileLabel: 'Editor',
+      badge: `v${state.selectedDrill.version}`,
+      renderIcon: (color, size = 16) => <SlidersIcon size={size} color={color} />,
+    },
+    {
       key: 'HARDWARE',
-      label: '3. Hardware & IoT Serial',
+      label: '4. Hardware & IoT Serial',
       mobileLabel: 'IoT',
       badge: hwBadge,
       renderIcon: (color, size = 16) => <CpuIcon size={size} color={color} />,
     },
     {
       key: 'MANAGEMENT',
-      label: '4. Gestão de Atletas & Logs',
+      label: '5. Gestão de Atletas & Logs',
       mobileLabel: 'Atletas',
       badge: String(profilesCount),
       renderIcon: (color, size = 16) => <UsersIcon size={size} color={color} />,
     },
     {
       key: 'AUTH',
-      label: '5. Login & Segurança JWT',
+      label: '6. Login & Segurança JWT',
       mobileLabel: 'Conta',
       badge: user ? 'Ativo' : 'Entrar',
       renderIcon: (color, size = 16) => <LockIcon size={size} color={color} />,
@@ -746,6 +774,8 @@ function MainWorkspace() {
                     ledCount={state.ledCount}
                     remainingMs={state.stepRemainingMs}
                     totalMs={state.stepTotalMs}
+                    currentBallSpeedKmh={state.currentBallSpeedKmh}
+                    currentSpinType={state.currentSpinType}
                     lastHitTarget={state.lastHitTarget}
                     lastHitResult={state.lastHitResult}
                     isKidsMode={state.isKidsMode}
@@ -755,6 +785,9 @@ function MainWorkspace() {
                     onToggleMode={actions.setIsKidsMode}
                     onTargetPress={actions.tapTargetSimulated}
                     onStartSession={actions.startSession}
+                    onPauseSession={actions.pauseSession}
+                    onResumeSession={actions.resumeSession}
+                    onAbortSession={actions.abortSession}
                     onTriggerStop={actions.triggerEmergencyStop}
                     onResetStop={actions.resetEmergencyStop}
                     onViewSummary={() => setActiveTab('SUMMARY')}
@@ -765,14 +798,20 @@ function MainWorkspace() {
                   <DrillCatalogCard
                     selectedDrill={state.selectedDrill}
                     isKidsMode={state.isKidsMode}
+                    drillsList={catalogDrills}
+                    catalogSource={catalogSource}
                     onSelectDrill={actions.setSelectedDrill}
+                    onOpenEditor={(drillToEdit) => {
+                      setEditorTargetDrill(drillToEdit || null);
+                      setActiveTab('EDITOR');
+                    }}
                   />
                 </View>
               </View>
             </View>
           )}
 
-          {/* ABA 2: RESUMO DA SESSÃO */}
+          {/* ABA 2: RESUMO DA SESSÃO & HISTÓRICO */}
           {activeTab === 'SUMMARY' && (
             <SessionSummaryView
               metrics={state.metrics}
@@ -790,6 +829,10 @@ function MainWorkspace() {
               }
               isKidsMode={state.isKidsMode}
               hasCompletedSession={state.hasCompletedSession}
+              sessionEvents={state.sessionEvents}
+              syncStatus={state.syncStatus}
+              offlinePendingCount={state.offlinePendingCount}
+              onRetryOfflineSync={actions.retryOfflineSync}
               onStartNewSession={() => {
                 setActiveTab('ARENA');
                 actions.startSession();
@@ -797,7 +840,24 @@ function MainWorkspace() {
             />
           )}
 
-          {/* ABA 3: HARDWARE & IOT SERIAL */}
+          {/* ABA 3: EDITOR DE TREINOS, SIMULAÇÃO, VERSIONAMENTO & MARKETPLACE (RF14-RF16, RF20) */}
+          {activeTab === 'EDITOR' && (
+            <DrillEditorView
+              drillsList={catalogDrills}
+              initialDrill={editorTargetDrill}
+              onDrillSaved={(saved, allDrills) => {
+                setCatalogDrills(allDrills);
+                actions.setSelectedDrill(saved);
+              }}
+              onPlayDrillInArena={(playableDrill) => {
+                actions.setSelectedDrill(playableDrill);
+                actions.setIsKidsMode(playableDrill.isKidsAdapted);
+                setActiveTab('ARENA');
+              }}
+            />
+          )}
+
+          {/* ABA 4: HARDWARE & IOT SERIAL */}
           {activeTab === 'HARDWARE' && <HardwareView />}
 
           {/* ABA 4: GESTÃO DE ATLETAS & LOGS */}

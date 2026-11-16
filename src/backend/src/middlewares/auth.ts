@@ -64,6 +64,47 @@ export async function authenticateToken(
   }
 }
 
+export async function optionalAuthenticateToken(
+  req: Request,
+  _res: Response,
+  next: NextFunction
+): Promise<void> {
+  const authHeader = req.headers.authorization;
+  const token = authHeader && authHeader.split(' ')[1];
+
+  if (!token) {
+    next();
+    return;
+  }
+
+  try {
+    const payload = jwt.verify(token, config.jwtSecret) as {
+      id: number;
+      email: string;
+      role: UserRole;
+    };
+
+    const [rows] = await pool.query<any[]>(
+      'SELECT id, name, email, role, is_active FROM users WHERE id = ?',
+      [payload.id]
+    );
+
+    const user = rows[0];
+    if (user && user.is_active) {
+      req.user = {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+      };
+    }
+  } catch {
+    // Segue sem usuário autenticado
+  }
+
+  next();
+}
+
 export function requireRole(...roles: UserRole[]) {
   return (req: Request, res: Response, next: NextFunction): void => {
     if (!req.user) {

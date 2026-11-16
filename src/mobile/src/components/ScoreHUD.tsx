@@ -55,6 +55,8 @@ function getFsmDisplay(
       return { badge: 'HIT_OK', description: 'Impacto confirmado no sensor!' };
     case GameState.TARGET_MISS_TIMEOUT:
       return { badge: 'TIMEOUT', description: 'Janela expirada • Próximo alvo' };
+    case GameState.PAUSED:
+      return { badge: 'PAUSED', description: 'Sessão pausada (RF06)' };
     case GameState.COMPLETED:
       return { badge: 'DONE', description: 'Sessão concluída • Veja o resumo' };
     case GameState.EMERGENCY_STOP:
@@ -93,7 +95,8 @@ export const ScoreHUD: React.FC<ScoreHUDProps> = ({
   const isSessionActive =
     gameState === GameState.RUNNING_TARGET_ACTIVE ||
     gameState === GameState.TARGET_HIT ||
-    gameState === GameState.TARGET_MISS_TIMEOUT;
+    gameState === GameState.TARGET_MISS_TIMEOUT ||
+    gameState === GameState.PAUSED;
 
   const stepDisplay = isSessionActive
     ? Math.min(currentStep + 1, totalSteps)

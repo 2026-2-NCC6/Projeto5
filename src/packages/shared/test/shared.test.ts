@@ -9,6 +9,13 @@ import {
   parseSerialFrame,
   serializeSerialCommand,
 } from '../src/protocol/serial.ts';
+import {
+  validateDrillDefinition,
+  bumpDrillVersion,
+  DEFAULT_DRILLS,
+  DrillCategory,
+  DrillDifficulty,
+} from '../src/contracts/drills.ts';
 
 test('RN03: Multiplicador de streak cresce até 1.5x aos 5 acertos', () => {
   assert.equal(getStreakMultiplier(0), 1.0);
@@ -165,4 +172,32 @@ test('Serializador: gera quadros JSON com delimitador newline para todos os coma
 
   const emgCmd = serializeSerialCommand('!EMG');
   assert.equal(emgCmd, '!EMG\n');
+});
+
+test('RF15: Validador de treinos aprova DEFAULT_DRILLS e rejeita parâmetros inseguros', () => {
+  for (const drill of DEFAULT_DRILLS) {
+    const check = validateDrillDefinition(drill);
+    assert.equal(check.valid, true, `Treino ${drill.id} deveria ser válido`);
+    assert.equal(check.errors.length, 0);
+  }
+
+  const invalidCheck = validateDrillDefinition({
+    title: 'Ab',
+    description: 'Curto',
+    authorName: '',
+    version: 'invalida',
+    category: DrillCategory.PRECISION,
+    difficulty: DrillDifficulty.BEGINNER,
+    isKidsAdapted: true,
+    steps: [{ stepNumber: 1, targetId: 5, durationMs: 300, ballSpeedKmh: 200 }],
+  });
+
+  assert.equal(invalidCheck.valid, false);
+  assert.ok(invalidCheck.errors.length >= 4);
+});
+
+test('RF16: Versionamento semântico incrementa PATCH, MINOR e MAJOR corretamente', () => {
+  assert.equal(bumpDrillVersion('1.0.0', 'PATCH'), '1.0.1');
+  assert.equal(bumpDrillVersion('1.0.0', 'MINOR'), '1.1.0');
+  assert.equal(bumpDrillVersion('1.2.3', 'MAJOR'), '2.0.0');
 });

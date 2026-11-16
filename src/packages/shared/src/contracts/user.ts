@@ -1,7 +1,10 @@
 /**
- * Contratos de Usuários, Autenticação, Perfis e Auditoria (RF01, RF02, RF17, RF23)
+ * Contratos de Usuários, Autenticação, Perfis, Sessões de Treino e Auditoria
+ * (RF01, RF02, RF12, RF13, RF17, RF19, RF21, RF23)
  * Smart Tennis Arena - 6º CCOMP 2026
  */
+
+import type { TargetId } from '../protocol/serial';
 
 export type UserRole = 'JOGADOR' | 'TREINADOR' | 'ADMIN';
 
@@ -38,6 +41,11 @@ export interface UserWithProfile extends User {
 export interface LoginDto {
   email: string;
   password: string;
+}
+
+export interface ResetPasswordDto {
+  email: string;
+  newPassword: string;
 }
 
 export interface RegisterDto {
@@ -80,4 +88,71 @@ export interface AuditLog {
   ipAddress?: string | null;
   details?: string | null;
   createdAt: string;
+}
+
+// ==========================================
+// Contratos de Sessão, Telemetria e Histórico (RF12, RF13, RF19, RF21)
+// ==========================================
+
+export type SessionCompletionStatus = 'COMPLETED' | 'ABORTED' | 'EMERGENCY_STOP';
+
+export interface SessionEventLogItem {
+  stepNumber: number;
+  targetId: TargetId;
+  result: 'HIT' | 'WRONG_HIT' | 'MISS' | 'ESTOP';
+  reactionTimeMs?: number;
+  adcForce?: number;
+  pointsDelta: number;
+  ballSpeedKmh?: number;
+  spinType?: string;
+  timestamp: string;
+}
+
+export interface SessionZoneStat {
+  attempts: Record<TargetId, number>;
+  hits: Record<TargetId, number>;
+  avgReactionMs: Record<TargetId, number>;
+}
+
+export interface CreateSessionDto {
+  sessionUuid: string; // Idempotência para operação offline (RF21)
+  drillId: string;
+  drillTitle: string;
+  drillVersion: string;
+  isKidsMode: boolean;
+  status: SessionCompletionStatus;
+  score: number;
+  maxStreak: number;
+  hits: number;
+  misses: number;
+  wrongHits: number;
+  accuracyPct: number;
+  averageReactionTimeMs: number;
+  durationSec: number;
+  hardwareMode: 'WEB_SERIAL' | 'MOCK';
+  zoneAnalytics: SessionZoneStat;
+  eventsTelemetry?: SessionEventLogItem[];
+  telemetryAuthorized?: boolean; // Proteção LGPD / Coleta mínima para menores
+  startedAt: string;
+  completedAt: string;
+}
+
+export interface TrainingSessionRecord extends CreateSessionDto {
+  id: number;
+  userId?: number | null;
+  athleteName: string;
+  syncedFromOffline?: boolean;
+  createdAt: string;
+}
+
+export interface SessionStatsSummary {
+  totalSessions: number;
+  totalShotsVolume: number;
+  totalHits: number;
+  averageAccuracyPct: number;
+  averageReactionTimeMs: number;
+  bestScore: number;
+  bestStreak: number;
+  consistencyIndexPct: number; // Estabilidade de acerto entre sessões
+  progressionDeltaPct: number; // Evolução recente vs média histórica
 }

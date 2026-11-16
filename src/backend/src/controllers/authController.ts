@@ -7,6 +7,7 @@ import {
   AuthResponse,
   LoginDto,
   RegisterDto,
+  ResetPasswordDto,
   UpdateProfileDto,
   UserWithProfile,
 } from '../../../packages/shared/src/contracts/user';
@@ -334,5 +335,50 @@ export async function updateProfile(req: Request, res: Response): Promise<void> 
     res.status(500).json({ error: 'Erro interno ao atualizar perfil' });
   } finally {
     conn.release();
+  }
+}
+
+export async function resetPassword(req: Request, res: Response): Promise<void> {
+  const body: ResetPasswordDto = req.body;
+  const ip = req.ip || req.socket.remoteAddress || 'unknown';
+
+  if (!body.email || !body.newPassword) {
+    res.status(400).json({ error: 'E-mail e nova senha são obrigatórios' });
+    return;
+  }
+
+  if (body.newPassword.length < 6) {
+    res.status(400).json({ error: 'A nova senha deve conter no mínimo 6 caracteres' });
+    return;
+  }
+
+  const emailClean = body.email.trim().toLowerCase();
+
+  try {
+    const [rows] = await pool.query<any[]>(
+      'SELECT id, name FROM users WHERE email = ?',
+      [emailClean]
+    );
+    const userRow = rows[0];
+    if (!userRow) {
+      res.status(404).json({ error: 'Nenhuma conta localizada para este e-mail institucional' });
+      return;
+    }
+
+    const newHash = await bcrypt.hash(body.newPassword, 10);
+    await pool.query('UPDATE users SET password_hash = ? WHERE id = ?', [newHash, userRow.id]);
+
+    await logAuditEvent(
+      'PASSWORD_RESET',
+      userRow.id,
+      userRow.name,
+      ip,
+      'Redefinição de senha concluída (transição formal q3 -> q1)'
+    );
+
+    res.json({ message: 'Senha redefinida com sucesso! Faça login com sua nova credencial.' });
+  } catch (err: any) {
+    console.error('Erro ao redefinir senha:', err);
+    res.status(500).json({ error: 'Erro interno ao redefinir senha' });
   }
 }

@@ -31,9 +31,9 @@ O **Smart Tennis Arena** é um ecossistema integrado de IoT e robótica voltado 
 - **🎾 Modo Pro (Métrico)**: Métricas avançadas de tempo de reação, força de impacto (ADC), multiplicadores de combo/streak e penalidade por erros (RN03).
 
 A arquitetura do projeto é dividida em **três camadas desacopladas**:
-1. **Aplicativo Mobile & Web (Expo / React Native)**: Interface para seleção de treinos, controle da sessão, visualização do HUD e gestão de perfil.
-2. **Backend REST API (Node.js / Express / TypeScript)**: Autenticação JWT, controle de acesso RBAC, CRUD de usuários (RF17), perfis esportivos (RF02) e logs de auditoria (RF23).
-3. **Banco de Dados Relacional (MySQL / MariaDB)**: Persistência transacional com suporte a execução local e deploy em nuvem.
+1. **Aplicativo Mobile & Site/Dashboard Web (Expo / React Native)**: Interface responsiva para seleção e filtragem de treinos (RF03), preparação e riscos (RF04), execução com pausar/retomar/encerrar (RF06), parâmetros da máquina lançadora (RF09), resumo analítico e recomendações (RF12), histórico e indicadores (RF13), editor/simulador/versionamento/marketplace de treinos (RF14–RF16, RF20), operação offline (RF21), parada segura `!EMG` (RF22) e gestão administrativa (RF01, RF02, RF17).
+2. **Backend REST API (Node.js / Express / TypeScript)**: Autenticação JWT + recuperação de senha (RF01), perfis esportivos (RF02), catálogo e publicação de treinos versionados (RF14–RF16, RF18, RF20), recebimento idempotente de sessões e telemetria com proteção LGPD infantil (RF13, RF19, RF21), CRUD de usuários RBAC (RF17), especificação OpenAPI 3.0 (`/api/openapi.json`) e logs de auditoria (RF23).
+3. **Banco de Dados Relacional (MySQL / MariaDB)**: Persistência transacional (`users`, `player_profiles`, `drills`, `training_sessions`, `audit_logs`) com suporte a execução local e deploy em nuvem.
 
 ---
 
@@ -58,23 +58,23 @@ Projeto5/
 │   │   └── src/
 │   │       ├── db.ts          # Pool de conexões MySQL, migrations e seeds
 │   │       ├── server.ts      # Ponto de entrada do servidor Express
-│   │       ├── routes/        # Rotas da API (/auth, /users, /audit-logs)
+│   │       ├── routes/        # Rotas da API (/auth, /users, /drills, /sessions, /audit-logs)
 │   │       └── middlewares/   # Autenticação JWT e RBAC
 │   ├── mobile/                # Aplicativo Expo / React Native (Web + Mobile)
-│   │   ├── App.tsx            # Tela principal integrada
+│   │   ├── App.tsx            # Tela principal integrada (6 abas responsivas)
 │   │   ├── metro.config.js    # Resolução de pacotes compartilhados (Monorepo)
 │   │   └── src/
-│   │       ├── components/    # HUD, TargetBoard, AuthModal, HardwareModal, etc.
-│   │       ├── context/       # AuthContext (sessão persistente)
+│   │       ├── components/    # HUD, TargetBoard, DrillCatalog, DrillEditor, SessionSummary, etc.
+│   │       ├── context/       # AuthContext e AccessibilityContext
 │   │       ├── fsm/           # Game Engine e Máquina de Estados (Mealy FSM)
 │   │       ├── hardware/      # Drivers: WebSerialDriver (USB real), MockSerial, HardwareManager
-│   │       └── services/      # Cliente HTTP da API REST
+│   │       └── services/      # Cliente HTTP da API REST + Fila de Sincronização Offline (RF21)
 │   └── packages/
 │       └── shared/            # Contratos, tipos, regras de pontuação e testes
-│           ├── src/contracts/ # Interfaces de usuário, perfil e catálogo de treinos
+│           ├── src/contracts/ # Interfaces de usuário, perfil, sessões e catálogo de treinos
 │           ├── src/protocol/  # Protocolo serial: tipos, parser e serializer
 │           ├── src/rules/     # Algoritmo de pontuação e streak (RN03)
-│           └── test/          # Testes unitários automatizados (11 testes)
+│           └── test/          # Testes unitários automatizados (13 testes)
 └── README.md                  # Este guia
 ```
 
@@ -148,7 +148,7 @@ cd ../..
    ```bash
    npm run db:init
    ```
-   > Este comando cria o banco de dados `smart_tennis_arena`, cria automaticamente as tabelas `users`, `player_profiles` e `audit_logs`, e cadastra as contas iniciais de teste.
+   > Este comando cria o banco de dados `smart_tennis_arena`, cria automaticamente as tabelas `users`, `player_profiles`, `drills`, `training_sessions` e `audit_logs`, e cadastra as contas, treinos e sessões iniciais de teste.
 
 5. Inicie o servidor da API:
    ```bash

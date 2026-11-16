@@ -1,11 +1,11 @@
 import { Router } from 'express';
-import { getAuditLogs } from '../controllers/auditController';
-import { authenticateToken, requireRole } from '../middlewares/auth';
+import { getAuditLogs, createAuditEvent } from '../controllers/auditController';
+import { authenticateToken, optionalAuthenticateToken, requireRole } from '../middlewares/auth';
 
 export const auditRouter = Router();
 
-// Apenas Administradores têm acesso à auditoria global (RF23)
-auditRouter.use(authenticateToken);
-auditRouter.use(requireRole('ADMIN'));
+// Registro de eventos críticos (ex: Parada de Emergência !EMG - RF22 e RF23)
+auditRouter.post('/event', optionalAuthenticateToken, createAuditEvent);
 
-auditRouter.get('/', getAuditLogs);
+// Apenas Administradores têm acesso à listagem da auditoria global (RF23)
+auditRouter.get('/', authenticateToken, requireRole('ADMIN'), getAuditLogs);

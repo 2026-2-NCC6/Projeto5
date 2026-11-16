@@ -13,6 +13,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { useAuth } from '../context/AuthContext';
+import { api } from '../services/api';
 import {
   AgeGroup,
   SkillLevel,
@@ -45,9 +46,17 @@ export function AuthView({ onAuthSuccess }: AuthViewProps) {
   const [regAgeGroup, setRegAgeGroup] = useState<AgeGroup>('ADULTO');
   const [regSkillLevel, setRegSkillLevel] = useState<SkillLevel>('INICIANTE');
   const [regGoals, setRegGoals] = useState('');
+  const [regPreferences, setRegPreferences] = useState('');
   const [regRestrictions, setRegRestrictions] = useState('');
 
+  // Recuperação de Senha (Estado Formal q3: Recuperando_Senha - Entrega 1 Teoria da Computação)
+  const [isRecoveringPassword, setIsRecoveringPassword] = useState(false);
+  const [resetEmail, setResetEmail] = useState('jogador@smarttennis.com');
+  const [resetNewPassword, setResetNewPassword] = useState('');
+  const [isResetting, setIsResetting] = useState(false);
+
   const [localMsg, setLocalMsg] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
   const fillQuickDemo = (kind: 'jogador' | 'kids' | 'treinador' | 'admin') => {
     clearError();
@@ -103,11 +112,42 @@ export function AuthView({ onAuthSuccess }: AuthViewProps) {
         ageGroup: regAgeGroup,
         skillLevel: regSkillLevel,
         trainingGoals: regGoals || undefined,
+        preferences: regPreferences || undefined,
         physicalRestrictions: regRestrictions || undefined,
       });
       onAuthSuccess?.();
     } catch {
       // Tratado pelo AuthContext
+    }
+  };
+
+  const handleResetPassword = async () => {
+    clearError();
+    setLocalMsg(null);
+    setSuccessMsg(null);
+    if (!resetEmail.trim() || !resetNewPassword) {
+      setLocalMsg('Informe o e-mail institucional e a nova senha.');
+      return;
+    }
+    if (resetNewPassword.length < 6) {
+      setLocalMsg('A nova senha deve conter no mínimo 6 caracteres.');
+      return;
+    }
+    setIsResetting(true);
+    try {
+      const res = await api.resetPassword({
+        email: resetEmail.trim(),
+        newPassword: resetNewPassword,
+      });
+      setSuccessMsg(res.message);
+      setLoginEmail(resetEmail.trim());
+      setLoginPassword(resetNewPassword);
+      setIsRecoveringPassword(false);
+      setResetNewPassword('');
+    } catch (err: any) {
+      setLocalMsg(err.message || 'Falha ao redefinir senha');
+    } finally {
+      setIsResetting(false);
     }
   };
 
@@ -229,7 +269,7 @@ export function AuthView({ onAuthSuccess }: AuthViewProps) {
           </TouchableOpacity>
         </View>
 
-        {/* Mensagem de erro */}
+        {/* Mensagem de erro ou sucesso */}
         {(error || localMsg) && (
           <View
             style={[
@@ -249,8 +289,101 @@ export function AuthView({ onAuthSuccess }: AuthViewProps) {
           </View>
         )}
 
+        {successMsg && (
+          <View
+            style={[
+              styles.alertBox,
+              { backgroundColor: theme.surfaceMint, borderColor: theme.primaryBorder },
+            ]}
+          >
+            <Text
+              style={{
+                color: theme.primaryDark,
+                fontWeight: '700',
+                fontSize: fs(12),
+              }}
+            >
+              ✓ {successMsg}
+            </Text>
+          </View>
+        )}
+
         {isLoginTab ? (
-          <View style={styles.form}>
+          isRecoveringPassword ? (
+            <View style={styles.form}>
+              <Text style={{ color: theme.primaryDark, fontWeight: '800', fontSize: fs(13), marginBottom: 4 }}>
+                Recuperação de Senha (Estado Formal q3)
+              </Text>
+              <Text style={{ color: theme.textSecondary, fontSize: fs(11), marginBottom: 8 }}>
+                Informe o e-mail institucional cadastrado e defina uma nova credencial de acesso.
+              </Text>
+
+              <Text style={[styles.label, { color: theme.text, fontSize: fs(12) }]}>
+                E-mail Institucional
+              </Text>
+              <TextInput
+                style={[
+                  styles.input,
+                  {
+                    backgroundColor: theme.surfaceMuted,
+                    borderColor: theme.borderNeutral,
+                    color: theme.text,
+                    fontSize: fs(14),
+                  },
+                ]}
+                value={resetEmail}
+                onChangeText={setResetEmail}
+                autoCapitalize="none"
+                keyboardType="email-address"
+                placeholder="nome@smarttennis.com"
+                placeholderTextColor={theme.textMuted}
+              />
+
+              <Text style={[styles.label, { color: theme.text, fontSize: fs(12) }]}>
+                Nova Senha (mín. 6 caracteres)
+              </Text>
+              <TextInput
+                style={[
+                  styles.input,
+                  {
+                    backgroundColor: theme.surfaceMuted,
+                    borderColor: theme.borderNeutral,
+                    color: theme.text,
+                    fontSize: fs(14),
+                  },
+                ]}
+                value={resetNewPassword}
+                onChangeText={setResetNewPassword}
+                secureTextEntry
+                placeholder="••••••••••••"
+                placeholderTextColor={theme.textMuted}
+              />
+
+              <TouchableOpacity
+                accessibilityRole="button"
+                style={[styles.primaryBtn, { backgroundColor: theme.primary }]}
+                disabled={isResetting}
+                onPress={handleResetPassword}
+              >
+                <Text style={[styles.primaryBtnText, { fontSize: fs(14) }]}>
+                  {isResetting ? 'Redefinindo...' : 'Confirmar Nova Senha (senha_redefinida)'}
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={{ alignSelf: 'center', marginTop: 12 }}
+                onPress={() => {
+                  setIsRecoveringPassword(false);
+                  setLocalMsg(null);
+                }}
+              >
+                <Text style={{ color: theme.textSecondary, fontWeight: '700', fontSize: fs(12) }}>
+                  ← Voltar ao Login (q1)
+                </Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View style={styles.form}>
             {/* Atalhos Demo Discretos */}
             <View style={styles.demoRow}>
               <Text style={{ color: theme.textMuted, fontSize: fs(11), fontWeight: '600' }}>
@@ -340,7 +473,23 @@ export function AuthView({ onAuthSuccess }: AuthViewProps) {
                 </Text>
               )}
             </TouchableOpacity>
+
+            <TouchableOpacity
+              accessibilityRole="button"
+              style={{ alignSelf: 'center', marginTop: 12 }}
+              onPress={() => {
+                setResetEmail(loginEmail);
+                setIsRecoveringPassword(true);
+                setLocalMsg(null);
+                setSuccessMsg(null);
+              }}
+            >
+              <Text style={{ color: theme.primaryDark, fontWeight: '700', fontSize: fs(12) }}>
+                Esqueci minha senha / Redefinir acesso (q3)
+              </Text>
+            </TouchableOpacity>
           </View>
+          )
         ) : (
           <View style={styles.form}>
             <Text style={[styles.label, { color: theme.text, fontSize: fs(12) }]}>
@@ -519,6 +668,23 @@ export function AuthView({ onAuthSuccess }: AuthViewProps) {
               value={regGoals}
               onChangeText={setRegGoals}
               placeholder="Ex: Melhorar reflexo de fundo de quadra"
+              placeholderTextColor={theme.textMuted}
+            />
+
+            <TextInput
+              style={[
+                styles.input,
+                {
+                  backgroundColor: theme.surfaceMuted,
+                  borderColor: theme.borderNeutral,
+                  color: theme.text,
+                  fontSize: fs(13),
+                  marginTop: 6,
+                },
+              ]}
+              value={regPreferences}
+              onChangeText={setRegPreferences}
+              placeholder="Preferências de treino / ritmo / feedbacks (RF02)"
               placeholderTextColor={theme.textMuted}
             />
 

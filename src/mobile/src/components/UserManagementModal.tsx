@@ -113,6 +113,7 @@ export function ManagementView({
   const [profSkill, setProfSkill] = useState<SkillLevel>('INICIANTE');
   const [profAge, setProfAge] = useState<AgeGroup>('ADULTO');
   const [profGoals, setProfGoals] = useState('');
+  const [profPrefs, setProfPrefs] = useState('');
   const [profRestr, setProfRestr] = useState('');
   const [isSavingProf, setIsSavingProf] = useState(false);
 
@@ -128,6 +129,7 @@ export function ManagementView({
       setProfSkill(user.profile?.skillLevel || 'INICIANTE');
       setProfAge(user.profile?.ageGroup || 'ADULTO');
       setProfGoals(user.profile?.trainingGoals || '');
+      setProfPrefs(user.profile?.preferences || '');
       setProfRestr(user.profile?.physicalRestrictions || '');
     }
   }, [user]);
@@ -263,6 +265,7 @@ export function ManagementView({
         skillLevel: profSkill,
         ageGroup: profAge,
         trainingGoals: profGoals,
+        preferences: profPrefs,
         physicalRestrictions: profRestr,
       });
       setFeedbackMsg('✓ Preferências esportivas (RF02) salvas no MySQL!');
@@ -416,6 +419,31 @@ export function ManagementView({
                 value={profGoals}
                 onChangeText={setProfGoals}
                 placeholder="Meta de treino (ex: Reflexo de rede)"
+                placeholderTextColor={theme.textMuted}
+              />
+            </View>
+
+            <View style={[styles.quickFormRow, isMobile && { flexDirection: 'column', alignItems: 'stretch' }, { marginTop: 8 }]}>
+              <TextInput
+                style={[
+                  styles.formInput,
+                  isMobile && { width: '100%' },
+                  { backgroundColor: theme.surface, borderColor: theme.borderNeutral, color: theme.text, fontSize: fs(13) },
+                ]}
+                value={profPrefs}
+                onChangeText={setProfPrefs}
+                placeholder="Preferências de treino / ritmo / feedbacks (RF02)"
+                placeholderTextColor={theme.textMuted}
+              />
+              <TextInput
+                style={[
+                  styles.formInput,
+                  isMobile && { width: '100%' },
+                  { backgroundColor: theme.surface, borderColor: theme.borderNeutral, color: theme.text, fontSize: fs(13) },
+                ]}
+                value={profRestr}
+                onChangeText={setProfRestr}
+                placeholder="Restrições físicas / observações LGPD (RF02)"
                 placeholderTextColor={theme.textMuted}
               />
             </View>

@@ -1,6 +1,6 @@
 /**
  * Smart Tennis Arena — Quadra Interativa • Matriz de Sensores (TargetBoard)
- * Design Minimalista Branco & Verde Esmeralda • Geometria 2-1-2 Responsiva (Mobile & Web)
+ * Alinhado com RF06 (Iniciar, Pausar, Retomar, Encerrar), RF08, RF09 (Máquina/Simulador), RF11 e RF22
  */
 
 import React from 'react';
@@ -21,6 +21,8 @@ interface TargetBoardProps {
   ledCount: number; // 0..8 leds acesos no alvo ativo
   remainingMs: number;
   totalMs: number;
+  currentBallSpeedKmh?: number;
+  currentSpinType?: 'FLAT' | 'TOPSPIN' | 'BACKSPIN';
   lastHitTarget: TargetId | null;
   lastHitResult: 'HIT' | 'WRONG_HIT' | 'MISS' | null;
   isKidsMode: boolean;
@@ -30,6 +32,9 @@ interface TargetBoardProps {
   onToggleMode: (kids: boolean) => void;
   onTargetPress: (targetId: TargetId) => void;
   onStartSession: () => void;
+  onPauseSession?: () => void;
+  onResumeSession?: () => void;
+  onAbortSession?: () => void;
   onTriggerStop: () => void;
   onResetStop: () => void;
   onViewSummary: () => void;
@@ -40,6 +45,8 @@ export const TargetBoard: React.FC<TargetBoardProps> = ({
   ledCount,
   remainingMs,
   totalMs,
+  currentBallSpeedKmh = 85,
+  currentSpinType = 'FLAT',
   lastHitTarget,
   lastHitResult,
   isKidsMode,
@@ -49,6 +56,9 @@ export const TargetBoard: React.FC<TargetBoardProps> = ({
   onToggleMode,
   onTargetPress,
   onStartSession,
+  onPauseSession,
+  onResumeSession,
+  onAbortSession,
   onTriggerStop,
   onResetStop,
   onViewSummary,
@@ -56,10 +66,12 @@ export const TargetBoard: React.FC<TargetBoardProps> = ({
   const { theme, fs } = useAccessibility();
   const { isMobile, isSmallPhone, cardPadding } = useResponsive();
 
+  const isPaused = gameState === GameState.PAUSED;
   const isPlaying =
     gameState === GameState.RUNNING_TARGET_ACTIVE ||
     gameState === GameState.TARGET_HIT ||
-    gameState === GameState.TARGET_MISS_TIMEOUT;
+    gameState === GameState.TARGET_MISS_TIMEOUT ||
+    isPaused;
 
   const progressRatio =
     isPlaying && totalMs > 0
@@ -80,16 +92,18 @@ export const TargetBoard: React.FC<TargetBoardProps> = ({
     let statusBadgeColor = theme.primaryDark;
 
     if (isActive) {
-      cardBg = theme.primary;
-      cardBorder = theme.primaryDark;
+      cardBg = isPaused ? theme.warning : theme.primary;
+      cardBorder = isPaused ? theme.warningBorder : theme.primaryDark;
       titleColor = '#FFFFFF';
-      subColor = '#D1FAE5';
+      subColor = isPaused ? '#FEF3C7' : '#D1FAE5';
       ringBg = 'rgba(255,255,255,0.18)';
-      statusBadgeText = isKidsMode
+      statusBadgeText = isPaused
+        ? '⏸ PAUSADO'
+        : isKidsMode
         ? '⭐ BATA!'
         : `${(remainingMs / 1000).toFixed(1)}s`;
       statusBadgeBg = '#FFFFFF';
-      statusBadgeColor = theme.primaryDark;
+      statusBadgeColor = isPaused ? theme.warning : theme.primaryDark;
     } else if (isRecentHit) {
       if (lastHitResult === 'HIT') {
         cardBg = theme.surfaceMint;
@@ -311,7 +325,9 @@ export const TargetBoard: React.FC<TargetBoardProps> = ({
               ]}
             >
               {isActive
-                ? 'Toque para simular impacto piezo'
+                ? isPaused
+                  ? 'Sessão pausada — clique em Retomar'
+                  : 'Toque para simular impacto piezo'
                 : '8 LEDs • Sensor Piezo ADC'}
             </Text>
           </View>
@@ -407,12 +423,14 @@ export const TargetBoard: React.FC<TargetBoardProps> = ({
         </View>
       </View>
 
-      {/* Barra de Janela Temporal Ativa */}
+      {/* Barra de Janela Temporal Ativa + Telemetria da Máquina Lançadora (RF06 & RF09) */}
       {isPlaying && (
         <View style={styles.timerBarContainer}>
           <View style={styles.timerLabelRow}>
-            <Text style={{ color: theme.primaryDark, fontWeight: '700', fontSize: fs(11) }}>
-              Alvo #0{activeTarget || '-'} ativo
+            <Text style={{ color: isPaused ? theme.warning : theme.primaryDark, fontWeight: '700', fontSize: fs(11) }}>
+              {isPaused
+                ? `⏸ Treino Pausado (Alvo #0${activeTarget || '-'})`
+                : `Alvo #0${activeTarget || '-'} ativo • 🎾 Lançadora: ${currentBallSpeedKmh} km/h (${currentSpinType})`}
             </Text>
             <Text style={{ color: theme.textSecondary, fontWeight: '700', fontSize: fs(11) }}>
               {remainingMs} ms ({ledCount}/8 LEDs)
@@ -424,8 +442,11 @@ export const TargetBoard: React.FC<TargetBoardProps> = ({
                 styles.timerFill,
                 {
                   width: `${Math.round(progressRatio * 100)}%`,
-                  backgroundColor:
-                    progressRatio < 0.28 ? theme.danger : theme.primary,
+                  backgroundColor: isPaused
+                    ? theme.warning
+                    : progressRatio < 0.28
+                    ? theme.danger
+                    : theme.primary,
                 },
               ]}
             />
@@ -454,7 +475,7 @@ export const TargetBoard: React.FC<TargetBoardProps> = ({
               Prepare-se na linha de base!
             </Text>
             <Text style={{ color: theme.textSecondary, fontSize: fs(11) }}>
-              Sincronizando disparo de LEDs nos sensores...
+              Sincronizando disparo de LEDs e máquina lançadora...
             </Text>
           </View>
         </View>
@@ -470,10 +491,10 @@ export const TargetBoard: React.FC<TargetBoardProps> = ({
         >
           <View style={{ flex: 1, minWidth: 180 }}>
             <Text style={{ color: theme.primaryDark, fontWeight: '800', fontSize: fs(13) }}>
-              ✓ Sessão de treino finalizada!
+              ✓ Sessão de treino finalizada e registrada!
             </Text>
             <Text style={{ color: theme.textSecondary, fontSize: fs(11), marginTop: 2 }}>
-              Confira a precisão por zona no relatório analítico.
+              Confira a precisão por zona, recomendações e histórico sincronizado.
             </Text>
           </View>
           <TouchableOpacity
@@ -485,7 +506,7 @@ export const TargetBoard: React.FC<TargetBoardProps> = ({
             onPress={onViewSummary}
           >
             <Text style={{ color: '#FFFFFF', fontWeight: '700', fontSize: fs(12) }}>
-              Ver Relatório →
+              Ver Relatório & Histórico →
             </Text>
           </TouchableOpacity>
         </View>
@@ -529,7 +550,7 @@ export const TargetBoard: React.FC<TargetBoardProps> = ({
         </View>
       </View>
 
-      {/* Barra de Controles de Ação e Segurança */}
+      {/* Barra de Controles de Execução da Sessão e Segurança (RF06 & RF22) */}
       <View
         style={[
           styles.footerControls,
@@ -558,12 +579,67 @@ export const TargetBoard: React.FC<TargetBoardProps> = ({
           )}
           <Text style={[styles.startButtonText, { fontSize: fs(14) }]}>
             {isPlaying
-              ? 'Reiniciar Protocolo Atual'
+              ? 'Reiniciar Protocolo'
               : gameState === GameState.COUNTDOWN
               ? 'Iniciando Contagem...'
               : 'Iniciar Sessão de Treino'}
           </Text>
         </TouchableOpacity>
+
+        {/* Botões de Pausar / Retomar e Encerrar durante a sessão (RF06) */}
+        {isPlaying && (
+          <View style={[styles.sessionActionGroup, isMobile && { width: '100%' }]}>
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel={isPaused ? 'Retomar sessão' : 'Pausar sessão'}
+              activeOpacity={0.85}
+              style={[
+                styles.secondarySessionBtn,
+                isMobile && { flex: 1 },
+                {
+                  backgroundColor: isPaused ? theme.primarySoft : theme.warningSoft,
+                  borderColor: isPaused ? theme.primary : theme.warningBorder,
+                },
+              ]}
+              onPress={isPaused ? onResumeSession : onPauseSession}
+            >
+              <Text
+                style={{
+                  color: isPaused ? theme.primaryDark : theme.warning,
+                  fontWeight: '800',
+                  fontSize: fs(13),
+                }}
+              >
+                {isPaused ? '▶ Retomar' : '⏸ Pausar'}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel="Encerrar sessão de treino"
+              activeOpacity={0.85}
+              style={[
+                styles.secondarySessionBtn,
+                isMobile && { flex: 1 },
+                {
+                  backgroundColor: theme.surfaceMuted,
+                  borderColor: theme.borderNeutral,
+                },
+              ]}
+              onPress={onAbortSession}
+            >
+              <Text
+                style={{
+                  color: theme.textSecondary,
+                  fontWeight: '800',
+                  fontSize: fs(13),
+                }}
+              >
+                ⏹ Encerrar
+              </Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
         <EmergencyStopButton
           isEngaged={gameState === GameState.EMERGENCY_STOP}
@@ -624,6 +700,8 @@ const styles = StyleSheet.create({
   timerLabelRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    gap: 6,
     marginBottom: 6,
   },
   timerTrack: {
@@ -775,24 +853,38 @@ const styles = StyleSheet.create({
   footerControls: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 12,
+    gap: 10,
     marginTop: 16,
     alignItems: 'center',
   },
   startButton: {
     flex: 1,
-    minWidth: 200,
+    minWidth: 185,
     minHeight: 48,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 9,
     paddingVertical: 13,
-    paddingHorizontal: 20,
+    paddingHorizontal: 18,
     borderRadius: 12,
   },
   startButtonText: {
     color: '#FFFFFF',
     fontWeight: '800',
+  },
+  sessionActionGroup: {
+    flexDirection: 'row',
+    gap: 8,
+    alignItems: 'center',
+  },
+  secondarySessionBtn: {
+    minHeight: 48,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

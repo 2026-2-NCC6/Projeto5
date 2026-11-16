@@ -1,6 +1,7 @@
 /**
  * Smart Tennis Arena — Game Engine & Mealy FSM
- * Alinhado com: docs/spec/01 (RN03/05/09) e docs/spec/03-state-machine-and-formal-model.md
+ * Alinhado com: RF06 (Iniciar, Pausar, Retomar, Encerrar), RF09 (Máquina/Simulador),
+ * RF10 (Pontuação), RF11 (Kids/Pro), RF19 (Envio de Resultados), RF21 (Operação Offline), RF22 (Parada Segura)
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
@@ -16,16 +17,23 @@ import {
   DrillDefinition,
   DEFAULT_DRILLS,
 } from '../../../packages/shared/src/contracts/drills';
+import {
+  SessionEventLogItem,
+  SessionCompletionStatus,
+} from '../../../packages/shared/src/contracts/user';
 import { calculateHitScore } from '../../../packages/shared/src/rules/scoring';
 import { ISerialDriver } from '../hardware/serialInterface';
 import { mockSerialDriver } from '../hardware/mockSerialDriver';
 import { hardwareManager } from '../hardware/hardwareManager';
+import { api } from '../services/api';
 
 export interface ZoneAnalytics {
   attempts: Record<TargetId, number>;
   hits: Record<TargetId, number>;
   avgReactionMs: Record<TargetId, number>;
 }
+
+export type SessionSyncStatus = 'IDLE' | 'SYNCING' | 'SYNCED' | 'OFFLINE_QUEUED';
 
 export interface GameEngineState {
   gameState: GameState;
@@ -35,6 +43,8 @@ export interface GameEngineState {
   activeTarget: TargetId | null;
   stepRemainingMs: number;
   stepTotalMs: number;
+  currentBallSpeedKmh: number;
+  currentSpinType: 'FLAT' | 'TOPSPIN' | 'BACKSPIN';
   ledCount: number; // 0..8
   countdownValue: number; // 3, 2, 1, 0
   score: number;
@@ -45,7 +55,10 @@ export interface GameEngineState {
   lastHitResult: 'HIT' | 'WRONG_HIT' | 'MISS' | null;
   metrics: SessionMetrics;
   zoneAnalytics: ZoneAnalytics;
+  sessionEvents: SessionEventLogItem[];
   hasCompletedSession: boolean;
+  syncStatus: SessionSyncStatus;
+  offlinePendingCount: number;
   isHardwareConnected: boolean;
   hardwareDeviceName: string | null;
   emergencyAlert: string | null;
@@ -53,7 +66,10 @@ export interface GameEngineState {
 
 const EMPTY_ZONE_MAP = (): Record<TargetId, number> => ({ 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 });
 
-export function useGameEngine(driver: ISerialDriver = hardwareManager) {
+export function useGameEngine(
+  driver: ISerialDriver = hardwareManager,
+  athleteName: string = 'Praticante Convidado'
+) {
   const [selectedDrill, setSelectedDrill] = useState<DrillDefinition>(
     DEFAULT_DRILLS[1] || DEFAULT_DRILLS[0]
   );
@@ -66,6 +82,8 @@ export function useGameEngine(driver: ISerialDriver = hardwareManager) {
   const [activeTarget, setActiveTarget] = useState<TargetId | null>(null);
   const [stepRemainingMs, setStepRemainingMs] = useState<number>(0);
   const [stepTotalMs, setStepTotalMs] = useState<number>(0);
+  const [currentBallSpeedKmh, setCurrentBallSpeedKmh] = useState<number>(85);
+  const [currentSpinType, setCurrentSpinType] = useState<'FLAT' | 'TOPSPIN' | 'BACKSPIN'>('FLAT');
   const [ledCount, setLedCount] = useState<number>(8);
   const [countdownValue, setCountdownValue] = useState<number>(3);
 
@@ -78,6 +96,11 @@ export function useGameEngine(driver: ISerialDriver = hardwareManager) {
   const [hasCompletedSession, setHasCompletedSession] = useState<boolean>(false);
 
   const [emergencyAlert, setEmergencyAlert] = useState<string | null>(null);
+  const [sessionEvents, setSessionEvents] = useState<SessionEventLogItem[]>([]);
+  const [syncStatus, setSyncStatus] = useState<SessionSyncStatus>('IDLE');
+  const [offlinePendingCount, setOfflinePendingCount] = useState<number>(
+    () => api.getOfflinePendingSessions().length
+  );
 
   const [metrics, setMetrics] = useState<SessionMetrics>({
     score: 0,
@@ -106,17 +129,28 @@ export function useGameEngine(driver: ISerialDriver = hardwareManager) {
   });
 
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const countdownIntervalRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stepStartTimeRef = useRef<number>(0);
   const stepDurationRef = useRef<number>(0);
   const currentStepIndexRef = useRef<number>(0);
+  const sessionStartIsoRef = useRef<string>(new Date().toISOString());
+  const sessionEventsRef = useRef<SessionEventLogItem[]>([]);
+  const metricsRef = useRef<SessionMetrics>(metrics);
+  const zoneAnalyticsRef = useRef<ZoneAnalytics>(zoneAnalytics);
 
   currentStepIndexRef.current = currentStepIndex;
+  metricsRef.current = metrics;
+  zoneAnalyticsRef.current = zoneAnalytics;
 
   // Auto-conecta o simulador virtual ao abrir o app para UX imediata
   useEffect(() => {
     if (hardwareManager.mode === 'MOCK' && !driver.isConnected) {
       driver.connect().catch(() => {});
     }
+    // Tenta descarregar fila offline ao iniciar
+    api.flushOfflineSessions().then(({ remainingCount }) => {
+      setOfflinePendingCount(remainingCount);
+    }).catch(() => {});
   }, [driver]);
 
   // 1. Ouvir status e eventos do hardware
@@ -139,12 +173,24 @@ export function useGameEngine(driver: ISerialDriver = hardwareManager) {
       unsubStatus();
       unsubEvents();
     };
-  }, [driver, gameState, activeTarget, stepRemainingMs, stepTotalMs, streak, isKidsMode, selectedDrill, score, maxStreak]);
+  }, [
+    driver,
+    gameState,
+    activeTarget,
+    stepRemainingMs,
+    stepTotalMs,
+    streak,
+    isKidsMode,
+    selectedDrill,
+    score,
+    maxStreak,
+  ]);
 
   // Limpa timers ao desmontar
   useEffect(() => {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
+      if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
     };
   }, []);
 
@@ -158,9 +204,81 @@ export function useGameEngine(driver: ISerialDriver = hardwareManager) {
     setGameState(GameState.IDLE);
   }, [driver]);
 
+  // Sincroniza sessão concluída/interrompida com a API ou fila offline (RF19, RF21)
+  const syncSessionResult = useCallback(
+    async (
+      completionStatus: SessionCompletionStatus,
+      finalMetrics: SessionMetrics,
+      finalZones: ZoneAnalytics,
+      eventsList: SessionEventLogItem[]
+    ) => {
+      const totalAttempts =
+        finalMetrics.hits + finalMetrics.misses + finalMetrics.wrongHits;
+      const accuracyPct =
+        totalAttempts > 0
+          ? Math.round((finalMetrics.hits / totalAttempts) * 100)
+          : 0;
+      const nowIso = new Date().toISOString();
+      const durationSec = Math.max(
+        1,
+        Math.round(
+          (new Date(nowIso).getTime() -
+            new Date(sessionStartIsoRef.current).getTime()) /
+            1000
+        )
+      );
+
+      setSyncStatus('SYNCING');
+      const sessionUuid = `sess-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+      const { syncState } = await api.submitSession({
+        sessionUuid,
+        athleteName,
+        drillId: selectedDrill.id,
+        drillTitle: selectedDrill.title,
+        drillVersion: selectedDrill.version || '1.0.0',
+        isKidsMode,
+        status: completionStatus,
+        score: finalMetrics.score,
+        maxStreak: finalMetrics.maxStreak,
+        hits: finalMetrics.hits,
+        misses: finalMetrics.misses,
+        wrongHits: finalMetrics.wrongHits,
+        accuracyPct,
+        averageReactionTimeMs: finalMetrics.averageReactionTimeMs || 0,
+        durationSec,
+        hardwareMode: hardwareManager.mode,
+        zoneAnalytics: finalZones,
+        eventsTelemetry: eventsList,
+        telemetryAuthorized: !isKidsMode, // Coleta mínima LGPD automática para crianças
+        startedAt: sessionStartIsoRef.current,
+        completedAt: nowIso,
+      });
+
+      setSyncStatus(syncState);
+      setOfflinePendingCount(api.getOfflinePendingSessions().length);
+    },
+    [athleteName, selectedDrill, isKidsMode]
+  );
+
+  const retryOfflineSync = useCallback(async () => {
+    setSyncStatus('SYNCING');
+    const { remainingCount } = await api.flushOfflineSessions();
+    setOfflinePendingCount(remainingCount);
+    setSyncStatus(remainingCount === 0 ? 'SYNCED' : 'OFFLINE_QUEUED');
+  }, []);
+
   // Manipulação dos eventos seriais recebidos do hardware/simulador
   const handleSerialEvent = useCallback(
     (event: SerialEvent) => {
+      // Se a sessão estiver PAUSADA, ignora leituras de alvo até retomar (RF06)
+      if (
+        gameState === GameState.PAUSED &&
+        (event.evt === 'HIT' || event.evt === 'WRONG_HIT' || event.evt === 'MISS')
+      ) {
+        return;
+      }
+
       switch (event.evt) {
         case 'READY':
           setGameState((prev) =>
@@ -185,7 +303,17 @@ export function useGameEngine(driver: ISerialDriver = hardwareManager) {
           break;
       }
     },
-    [gameState, activeTarget, stepRemainingMs, stepTotalMs, streak, isKidsMode, selectedDrill, score, maxStreak]
+    [
+      gameState,
+      activeTarget,
+      stepRemainingMs,
+      stepTotalMs,
+      streak,
+      isKidsMode,
+      selectedDrill,
+      score,
+      maxStreak,
+    ]
   );
 
   // Disparo incondicional de Parada Segura (RF22)
@@ -196,9 +324,44 @@ export function useGameEngine(driver: ISerialDriver = hardwareManager) {
 
   const handleEmergencyStop = (source: string) => {
     if (timerRef.current) clearInterval(timerRef.current);
+    if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
+
+    const wasRunning =
+      gameState === GameState.RUNNING_TARGET_ACTIVE ||
+      gameState === GameState.PAUSED ||
+      gameState === GameState.COUNTDOWN;
+
     setGameState(GameState.EMERGENCY_STOP);
     setEmergencyAlert(`PARADA DE SEGURANÇA ATIVADA (${source})`);
     setActiveTarget(null);
+
+    api.logCriticalEvent(
+      'EMERGENCY_STOP_EMG',
+      `Parada segura acionada via ${source} durante treino "${selectedDrill.title}"`,
+      athleteName
+    );
+
+    if (wasRunning) {
+      const estopEvt: SessionEventLogItem = {
+        stepNumber: currentStepIndexRef.current + 1,
+        targetId: activeTarget || 1,
+        result: 'ESTOP',
+        pointsDelta: 0,
+        ballSpeedKmh: currentBallSpeedKmh,
+        spinType: currentSpinType,
+        timestamp: new Date().toISOString(),
+      };
+      const updatedEvents = [...sessionEventsRef.current, estopEvt];
+      sessionEventsRef.current = updatedEvents;
+      setSessionEvents(updatedEvents);
+
+      syncSessionResult(
+        'EMERGENCY_STOP',
+        metricsRef.current,
+        zoneAnalyticsRef.current,
+        updatedEvents
+      );
+    }
   };
 
   const resetEmergencyStop = useCallback(async () => {
@@ -207,11 +370,72 @@ export function useGameEngine(driver: ISerialDriver = hardwareManager) {
     setGameState(GameState.IDLE);
   }, [driver]);
 
+  // Pausar sessão em andamento (RF06)
+  const pauseSession = useCallback(async () => {
+    if (gameState !== GameState.RUNNING_TARGET_ACTIVE) return;
+    if (timerRef.current) clearInterval(timerRef.current);
+
+    setGameState(GameState.PAUSED);
+    await driver.send({ cmd: 'DISPLAY', val: 'PAUS' });
+    await driver.send({ cmd: 'SET_LEDS', tgt: 0, mask: 0 });
+  }, [gameState, driver]);
+
+  // Retomar sessão pausada (RF06)
+  const resumeSession = useCallback(async () => {
+    if (gameState !== GameState.PAUSED || !activeTarget) return;
+
+    const remainingToResume = Math.max(600, stepRemainingMs);
+    setGameState(GameState.RUNNING_TARGET_ACTIVE);
+    stepStartTimeRef.current = Date.now();
+    stepDurationRef.current = remainingToResume;
+
+    await driver.send({
+      cmd: 'START',
+      tgt: activeTarget,
+      time: remainingToResume,
+    });
+
+    if (timerRef.current) clearInterval(timerRef.current);
+    timerRef.current = setInterval(() => {
+      const elapsed = Date.now() - stepStartTimeRef.current;
+      const remaining = Math.max(0, remainingToResume - elapsed);
+      setStepRemainingMs(remaining);
+
+      const fraction = stepTotalMs > 0 ? remaining / stepTotalMs : 0;
+      setLedCount(Math.ceil(fraction * 8));
+
+      if (remaining <= 0 && timerRef.current) {
+        clearInterval(timerRef.current);
+      }
+    }, 50);
+  }, [gameState, activeTarget, stepRemainingMs, stepTotalMs, driver]);
+
+  // Encerrar / Abortar sessão manualmente (RF06)
+  const abortSession = useCallback(async () => {
+    if (timerRef.current) clearInterval(timerRef.current);
+    if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
+
+    await driver.send({ cmd: 'RESET' });
+    setActiveTarget(null);
+    setHasCompletedSession(true);
+    setGameState(GameState.COMPLETED);
+
+    syncSessionResult(
+      'ABORTED',
+      metricsRef.current,
+      zoneAnalyticsRef.current,
+      sessionEventsRef.current
+    );
+  }, [driver, syncSessionResult]);
+
   // Início da sessão com contagem regressiva 3, 2, 1
   const startSession = useCallback(async () => {
     if (!driver.isConnected) {
       await driver.connect();
     }
+
+    if (timerRef.current) clearInterval(timerRef.current);
+    if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
 
     setScore(0);
     setStreak(0);
@@ -220,9 +444,13 @@ export function useGameEngine(driver: ISerialDriver = hardwareManager) {
     setLastPointsAdded(0);
     setLastHitTarget(null);
     setLastHitResult(null);
+    setSyncStatus('IDLE');
+    sessionStartIsoRef.current = new Date().toISOString();
+    sessionEventsRef.current = [];
+    setSessionEvents([]);
     zoneReactionListRef.current = { 1: [], 2: [], 3: [], 4: [], 5: [] };
 
-    setMetrics({
+    const freshMetrics: SessionMetrics = {
       score: 0,
       streak: 0,
       maxStreak: 0,
@@ -232,29 +460,33 @@ export function useGameEngine(driver: ISerialDriver = hardwareManager) {
       reactionTimes: [],
       averageReactionTimeMs: 0,
       hitsByTarget: EMPTY_ZONE_MAP(),
-    });
-
-    setZoneAnalytics({
+    };
+    const freshZones: ZoneAnalytics = {
       attempts: EMPTY_ZONE_MAP(),
       hits: EMPTY_ZONE_MAP(),
       avgReactionMs: EMPTY_ZONE_MAP(),
-    });
+    };
+
+    setMetrics(freshMetrics);
+    metricsRef.current = freshMetrics;
+    setZoneAnalytics(freshZones);
+    zoneAnalyticsRef.current = freshZones;
 
     setGameState(GameState.COUNTDOWN);
     setCountdownValue(3);
 
     let count = 3;
-    const countInterval = setInterval(() => {
+    countdownIntervalRef.current = setInterval(() => {
       count -= 1;
       setCountdownValue(count);
       if (count <= 0) {
-        clearInterval(countInterval);
+        if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
         startStep(0);
       }
     }, 850);
   }, [driver, selectedDrill, isKidsMode]);
 
-  // Inicia um step de alvo específico
+  // Inicia um step de alvo específico + comando de máquina/simulador (RF09)
   const startStep = useCallback(
     (stepIdx: number) => {
       if (stepIdx >= selectedDrill.steps.length) {
@@ -268,10 +500,15 @@ export function useGameEngine(driver: ISerialDriver = hardwareManager) {
         ? Math.round(step.durationMs * 1.5)
         : step.durationMs;
 
+      const speedKmh = step.ballSpeedKmh || (isKidsMode ? 45 : 90);
+      const spin = step.spinType || 'FLAT';
+
       setCurrentStepIndex(stepIdx);
       setActiveTarget(step.targetId);
       setStepTotalMs(effectiveDuration);
       setStepRemainingMs(effectiveDuration);
+      setCurrentBallSpeedKmh(speedKmh);
+      setCurrentSpinType(spin);
       setLedCount(8);
       setGameState(GameState.RUNNING_TARGET_ACTIVE);
 
@@ -331,39 +568,66 @@ export function useGameEngine(driver: ISerialDriver = hardwareManager) {
     setLastHitResult('HIT');
     setGameState(GameState.TARGET_HIT);
 
+    const hitLogItem: SessionEventLogItem = {
+      stepNumber: currentStepIndexRef.current + 1,
+      targetId,
+      result: 'HIT',
+      reactionTimeMs: reactionTime,
+      adcForce: adcFifo,
+      pointsDelta: scoreResult.pointsAdded,
+      ballSpeedKmh: currentBallSpeedKmh,
+      spinType: currentSpinType,
+      timestamp: new Date().toISOString(),
+    };
+    const nextEvents = [...sessionEventsRef.current, hitLogItem];
+    sessionEventsRef.current = nextEvents;
+    setSessionEvents(nextEvents);
+
     const zoneReactions = [...(zoneReactionListRef.current[targetId] || []), reactionTime];
     zoneReactionListRef.current[targetId] = zoneReactions;
     const zoneAvg = Math.round(
       zoneReactions.reduce((a, b) => a + b, 0) / zoneReactions.length
     );
 
-    setZoneAnalytics((prev) => ({
-      attempts: { ...prev.attempts, [targetId]: (prev.attempts[targetId] || 0) + 1 },
-      hits: { ...prev.hits, [targetId]: (prev.hits[targetId] || 0) + 1 },
-      avgReactionMs: { ...prev.avgReactionMs, [targetId]: zoneAvg },
-    }));
+    const updatedZones: ZoneAnalytics = {
+      attempts: {
+        ...zoneAnalyticsRef.current.attempts,
+        [targetId]: (zoneAnalyticsRef.current.attempts[targetId] || 0) + 1,
+      },
+      hits: {
+        ...zoneAnalyticsRef.current.hits,
+        [targetId]: (zoneAnalyticsRef.current.hits[targetId] || 0) + 1,
+      },
+      avgReactionMs: {
+        ...zoneAnalyticsRef.current.avgReactionMs,
+        [targetId]: zoneAvg,
+      },
+    };
+    zoneAnalyticsRef.current = updatedZones;
+    setZoneAnalytics(updatedZones);
 
-    setMetrics((prev) => {
-      const hits = prev.hits + 1;
-      const reactionTimes = [...prev.reactionTimes, reactionTime];
-      const avgReaction = Math.round(
-        reactionTimes.reduce((a, b) => a + b, 0) / reactionTimes.length
-      );
-      const hitsByTarget = {
-        ...prev.hitsByTarget,
-        [targetId]: (prev.hitsByTarget[targetId] || 0) + 1,
-      };
-      return {
-        ...prev,
-        score: newScore,
-        streak: newStreak,
-        maxStreak: newMaxStreak,
-        hits,
-        reactionTimes,
-        averageReactionTimeMs: avgReaction,
-        hitsByTarget,
-      };
-    });
+    const prev = metricsRef.current;
+    const hits = prev.hits + 1;
+    const reactionTimes = [...prev.reactionTimes, reactionTime];
+    const avgReaction = Math.round(
+      reactionTimes.reduce((a, b) => a + b, 0) / reactionTimes.length
+    );
+    const hitsByTarget = {
+      ...prev.hitsByTarget,
+      [targetId]: (prev.hitsByTarget[targetId] || 0) + 1,
+    };
+    const updatedMetrics: SessionMetrics = {
+      ...prev,
+      score: newScore,
+      streak: newStreak,
+      maxStreak: newMaxStreak,
+      hits,
+      reactionTimes,
+      averageReactionTimeMs: avgReaction,
+      hitsByTarget,
+    };
+    metricsRef.current = updatedMetrics;
+    setMetrics(updatedMetrics);
 
     setTimeout(() => {
       advanceNextStep();
@@ -388,22 +652,40 @@ export function useGameEngine(driver: ISerialDriver = hardwareManager) {
     setLastHitTarget(targetId);
     setLastHitResult('WRONG_HIT');
 
+    const wrongLogItem: SessionEventLogItem = {
+      stepNumber: currentStepIndexRef.current + 1,
+      targetId,
+      result: 'WRONG_HIT',
+      adcForce: adcFifo,
+      pointsDelta: scoreResult.pointsAdded,
+      ballSpeedKmh: currentBallSpeedKmh,
+      spinType: currentSpinType,
+      timestamp: new Date().toISOString(),
+    };
+    const nextEvents = [...sessionEventsRef.current, wrongLogItem];
+    sessionEventsRef.current = nextEvents;
+    setSessionEvents(nextEvents);
+
     if (activeTarget) {
-      setZoneAnalytics((prev) => ({
-        ...prev,
+      const updatedZones: ZoneAnalytics = {
+        ...zoneAnalyticsRef.current,
         attempts: {
-          ...prev.attempts,
-          [activeTarget]: (prev.attempts[activeTarget] || 0) + 1,
+          ...zoneAnalyticsRef.current.attempts,
+          [activeTarget]: (zoneAnalyticsRef.current.attempts[activeTarget] || 0) + 1,
         },
-      }));
+      };
+      zoneAnalyticsRef.current = updatedZones;
+      setZoneAnalytics(updatedZones);
     }
 
-    setMetrics((prev) => ({
-      ...prev,
+    const updatedMetrics: SessionMetrics = {
+      ...metricsRef.current,
       score: updatedScore,
-      wrongHits: prev.wrongHits + 1,
+      wrongHits: metricsRef.current.wrongHits + 1,
       streak: 0,
-    }));
+    };
+    metricsRef.current = updatedMetrics;
+    setMetrics(updatedMetrics);
   };
 
   // Processa tempo esgotado sem acerto
@@ -416,16 +698,36 @@ export function useGameEngine(driver: ISerialDriver = hardwareManager) {
     setLastHitResult('MISS');
     setGameState(GameState.TARGET_MISS_TIMEOUT);
 
-    setZoneAnalytics((prev) => ({
-      ...prev,
-      attempts: { ...prev.attempts, [targetId]: (prev.attempts[targetId] || 0) + 1 },
-    }));
+    const missLogItem: SessionEventLogItem = {
+      stepNumber: currentStepIndexRef.current + 1,
+      targetId,
+      result: 'MISS',
+      pointsDelta: 0,
+      ballSpeedKmh: currentBallSpeedKmh,
+      spinType: currentSpinType,
+      timestamp: new Date().toISOString(),
+    };
+    const nextEvents = [...sessionEventsRef.current, missLogItem];
+    sessionEventsRef.current = nextEvents;
+    setSessionEvents(nextEvents);
 
-    setMetrics((prev) => ({
-      ...prev,
-      misses: prev.misses + 1,
+    const updatedZones: ZoneAnalytics = {
+      ...zoneAnalyticsRef.current,
+      attempts: {
+        ...zoneAnalyticsRef.current.attempts,
+        [targetId]: (zoneAnalyticsRef.current.attempts[targetId] || 0) + 1,
+      },
+    };
+    zoneAnalyticsRef.current = updatedZones;
+    setZoneAnalytics(updatedZones);
+
+    const updatedMetrics: SessionMetrics = {
+      ...metricsRef.current,
+      misses: metricsRef.current.misses + 1,
       streak: 0,
-    }));
+    };
+    metricsRef.current = updatedMetrics;
+    setMetrics(updatedMetrics);
 
     setTimeout(() => {
       advanceNextStep();
@@ -446,6 +748,13 @@ export function useGameEngine(driver: ISerialDriver = hardwareManager) {
     setGameState(GameState.COMPLETED);
     setHasCompletedSession(true);
     setActiveTarget(null);
+
+    syncSessionResult(
+      'COMPLETED',
+      metricsRef.current,
+      zoneAnalyticsRef.current,
+      sessionEventsRef.current
+    );
   };
 
   const tapTargetSimulated = useCallback((targetId: TargetId) => {
@@ -463,6 +772,8 @@ export function useGameEngine(driver: ISerialDriver = hardwareManager) {
       activeTarget,
       stepRemainingMs,
       stepTotalMs,
+      currentBallSpeedKmh,
+      currentSpinType,
       ledCount,
       countdownValue,
       score,
@@ -473,7 +784,10 @@ export function useGameEngine(driver: ISerialDriver = hardwareManager) {
       lastHitResult,
       metrics,
       zoneAnalytics,
+      sessionEvents,
       hasCompletedSession,
+      syncStatus,
+      offlinePendingCount,
       isHardwareConnected,
       hardwareDeviceName,
       emergencyAlert,
@@ -484,9 +798,13 @@ export function useGameEngine(driver: ISerialDriver = hardwareManager) {
       connectHardware,
       disconnectHardware,
       startSession,
+      pauseSession,
+      resumeSession,
+      abortSession,
       triggerEmergencyStop,
       resetEmergencyStop,
       tapTargetSimulated,
+      retryOfflineSync,
     },
   };
 }

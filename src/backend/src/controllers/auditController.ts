@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { pool } from '../db';
+import { pool, logAuditEvent } from '../db';
 import { AuditLog } from '../../../packages/shared/src/contracts/user';
 
 export async function getAuditLogs(req: Request, res: Response): Promise<void> {
@@ -28,5 +28,33 @@ export async function getAuditLogs(req: Request, res: Response): Promise<void> {
   } catch (err: any) {
     console.error('Erro ao listar logs de auditoria:', err);
     res.status(500).json({ error: 'Erro interno ao consultar auditoria' });
+  }
+}
+
+export async function createAuditEvent(req: Request, res: Response): Promise<void> {
+  const { action, details, userName } = req.body as {
+    action?: string;
+    details?: string;
+    userName?: string;
+  };
+  const ip = req.ip || req.socket.remoteAddress || 'unknown';
+
+  if (!action) {
+    res.status(400).json({ error: 'Campo action é obrigatório' });
+    return;
+  }
+
+  try {
+    await logAuditEvent(
+      action,
+      req.user?.id || null,
+      req.user?.name || userName || 'Controlador IoT / Arena',
+      ip,
+      details || null
+    );
+    res.status(201).json({ status: 'LOGGED' });
+  } catch (err: any) {
+    console.error('Erro ao gravar evento de auditoria:', err);
+    res.status(500).json({ error: 'Erro ao gravar evento de auditoria' });
   }
 }
