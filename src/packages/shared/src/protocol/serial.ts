@@ -48,13 +48,29 @@ export interface EStopAlertEvent {
   ts?: number;
 }
 
+export interface BallShotEvent {
+  evt: 'BALL_SHOT';
+  tgt: TargetId;
+  speed: number;
+  spin: string;
+  ts: number;
+}
+
+export interface AckEvent {
+  evt: 'ACK';
+  cmd: string;
+  status: string;
+}
+
 export type SerialEvent =
   | HitEvent
   | WrongHitEvent
   | MissEvent
   | ReadyEvent
   | PongEvent
-  | EStopAlertEvent;
+  | EStopAlertEvent
+  | BallShotEvent
+  | AckEvent;
 
 // ==========================================
 // DOWNLINK: Host -> Firmware
@@ -64,6 +80,14 @@ export interface StartCommand {
   cmd: 'START';
   tgt: TargetId;
   time: number; // ms
+}
+
+export interface PauseCommand {
+  cmd: 'PAUSE';
+}
+
+export interface ResumeCommand {
+  cmd: 'RESUME';
 }
 
 export interface SetLedsCommand {
@@ -100,15 +124,26 @@ export interface CalibCommand {
   thresh: [number, number, number, number, number];
 }
 
+export interface MachineFeedCommand {
+  cmd: 'FEED';
+  speed: number; // km/h
+  spin: number;  // -10..+10
+  elev: number;  // graus
+  angle: number; // graus
+}
+
 export type SerialCommand =
   | StartCommand
+  | PauseCommand
+  | ResumeCommand
   | SetLedsCommand
   | DisplayCommand
   | BuzzCommand
   | EStopCommand
   | ResetCommand
   | PingCommand
-  | CalibCommand;
+  | CalibCommand
+  | MachineFeedCommand;
 
 // ==========================================
 // Regexes Formais (Conforme Secção 6 do Modelo Formal)
@@ -192,6 +227,22 @@ export function parseSerialFrame(rawLine: string): SerialEvent | null {
           evt: 'ESTOP_ALERT',
           src: String(parsed.src || 'UNKNOWN'),
           ts: typeof parsed.ts === 'number' ? parsed.ts : undefined,
+        };
+
+      case 'BALL_SHOT':
+        return {
+          evt: 'BALL_SHOT',
+          tgt: (parsed.tgt >= 1 && parsed.tgt <= 5 ? parsed.tgt : 5) as TargetId,
+          speed: Number(parsed.speed || 0),
+          spin: String(parsed.spin || 'FLAT'),
+          ts: Number(parsed.ts || 0),
+        };
+
+      case 'ACK':
+        return {
+          evt: 'ACK',
+          cmd: String(parsed.cmd || ''),
+          status: String(parsed.status || 'OK'),
         };
 
       default:

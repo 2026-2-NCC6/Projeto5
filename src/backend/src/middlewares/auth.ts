@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { config } from '../config';
 import { pool } from '../db';
+import { isJwtTokenRevoked } from './security';
 import { UserRole } from '../../../packages/shared/src/contracts/user';
 
 export interface AuthenticatedUser {
@@ -15,6 +16,9 @@ declare global {
   namespace Express {
     interface Request {
       user?: AuthenticatedUser;
+      rawToken?: string;
+      tokenExp?: number;
+      correlationId?: string;
     }
   }
 }
@@ -32,14 +36,19 @@ export async function authenticateToken(
     return;
   }
 
+  if (isJwtTokenRevoked(token)) {
+    res.status(401).json({ error: 'Sessão encerrada. Faça login novamente.' });
+    return;
+  }
+
   try {
     const payload = jwt.verify(token, config.jwtSecret) as {
       id: number;
       email: string;
       role: UserRole;
+      exp?: number;
     };
 
-    // Validar se o usuário ainda existe e está ativo no banco
     const [rows] = await pool.query<any[]>(
       'SELECT id, name, email, role, is_active FROM users WHERE id = ?',
       [payload.id]
@@ -57,6 +66,8 @@ export async function authenticateToken(
       email: user.email,
       role: user.role,
     };
+    req.rawToken = token;
+    req.tokenExp = payload.exp;
 
     next();
   } catch (err) {
@@ -64,6 +75,13 @@ export async function authenticateToken(
   }
 }
 
+<<<<<<< HEAD
+=======
+/**
+ * Autenticação opcional: popula `req.user` quando um JWT válido é fornecido,
+ * mas não bloqueia visitantes anônimos (útil para catálogo público RF18).
+ */
+>>>>>>> 03e98db8d84f475b5e841e8cac192153a6d66d0c
 export async function optionalAuthenticateToken(
   req: Request,
   _res: Response,
@@ -72,7 +90,11 @@ export async function optionalAuthenticateToken(
   const authHeader = req.headers.authorization;
   const token = authHeader && authHeader.split(' ')[1];
 
+<<<<<<< HEAD
   if (!token) {
+=======
+  if (!token || isJwtTokenRevoked(token)) {
+>>>>>>> 03e98db8d84f475b5e841e8cac192153a6d66d0c
     next();
     return;
   }
@@ -82,6 +104,10 @@ export async function optionalAuthenticateToken(
       id: number;
       email: string;
       role: UserRole;
+<<<<<<< HEAD
+=======
+      exp?: number;
+>>>>>>> 03e98db8d84f475b5e841e8cac192153a6d66d0c
     };
 
     const [rows] = await pool.query<any[]>(
@@ -97,9 +123,17 @@ export async function optionalAuthenticateToken(
         email: user.email,
         role: user.role,
       };
+<<<<<<< HEAD
     }
   } catch {
     // Segue sem usuário autenticado
+=======
+      req.rawToken = token;
+      req.tokenExp = payload.exp;
+    }
+  } catch {
+    // Ignora token inválido na leitura pública
+>>>>>>> 03e98db8d84f475b5e841e8cac192153a6d66d0c
   }
 
   next();
@@ -116,9 +150,8 @@ export function requireRole(...roles: UserRole[]) {
       res.status(403).json({
         error: `Acesso negado. Ação restrita aos perfis: ${roles.join(', ')}`,
       });
-      return;
+    } else {
+      next();
     }
-
-    next();
   };
 }

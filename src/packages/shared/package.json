@@ -7,7 +7,7 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc",
-    "test": "node --experimental-strip-types --test test/shared.test.ts"
+    "test": "node --experimental-transform-types --test test/shared.test.ts"
   },
   "devDependencies": {
     "typescript": "^5.4.0"

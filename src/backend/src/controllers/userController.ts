@@ -1,57 +1,53 @@
 import { Request, Response } from 'express';
+import bcrypt from 'bcryptjs';
 import { pool, logAuditEvent } from '../db';
-import { UpdateUserDto, UserWithProfile } from '../../../packages/shared/src/contracts/user';
+import {
+  mapUserRowToUserWithProfile,
+  USER_WITH_PROFILE_SELECT,
+} from './authController';
+import {
+  AdminCreateUserDto,
+  UpdateUserDto,
+  UserWithProfile,
+} from '../../../packages/shared/src/contracts/user';
+import {
+  applyPrivacyPolicyToUser,
+  isValidUserRole,
+  sanitizeOptionalText,
+  validateRegistrationPayload,
+} from '../../../packages/shared/src/security/validation';
 
 export async function listUsers(req: Request, res: Response): Promise<void> {
   try {
     const roleFilter = req.query.role as string | undefined;
     const search = req.query.q as string | undefined;
+    const anonymizeDemo =
+      req.query.anonymize === 'true' || req.query.anonymize === '1';
 
-    let query = `
-      SELECT u.id, u.name, u.email, u.role, u.is_active, u.created_at, u.updated_at,
-             p.id as profile_id, p.skill_level, p.age_group, p.training_goals, p.preferences, p.physical_restrictions
-      FROM users u
-      LEFT JOIN player_profiles p ON p.user_id = u.id
-      WHERE 1=1
-    `;
+    let query = `${USER_WITH_PROFILE_SELECT} WHERE 1=1`;
     const params: any[] = [];
 
-    if (roleFilter) {
+    if (roleFilter && isValidUserRole(roleFilter)) {
       query += ' AND u.role = ?';
       params.push(roleFilter);
     }
 
     if (search) {
+      const cleanSearch = search.trim().slice(0, 100);
       query += ' AND (u.name LIKE ? OR u.email LIKE ?)';
-      params.push(`%${search}%`, `%${search}%`);
+      params.push(`%${cleanSearch}%`, `%${cleanSearch}%`);
     }
 
     query += ' ORDER BY u.created_at DESC';
 
     const [rows] = await pool.query<any[]>(query, params);
+    const requester = req.user!;
 
-    const users: UserWithProfile[] = rows.map((r) => ({
-      id: r.id,
-      name: r.name,
-      email: r.email,
-      role: r.role,
-      isActive: Boolean(r.is_active),
-      createdAt: r.created_at,
-      updatedAt: r.updated_at,
-      profile: r.profile_id
-        ? {
-            id: r.profile_id,
-            userId: r.id,
-            skillLevel: r.skill_level,
-            ageGroup: r.age_group,
-            trainingGoals: r.training_goals,
-            preferences: r.preferences,
-            physicalRestrictions: r.physical_restrictions,
-            createdAt: r.created_at,
-            updatedAt: r.updated_at,
-          }
-        : null,
-    }));
+    const users: UserWithProfile[] = rows.map((r) =>
+      applyPrivacyPolicyToUser(mapUserRowToUserWithProfile(r), requester, {
+        anonymizeDemo,
+      })
+    );
 
     res.json(users);
   } catch (err: any) {
@@ -60,8 +56,98 @@ export async function listUsers(req: Request, res: Response): Promise<void> {
   }
 }
 
+export async function createUserByAdmin(req: Request, res: Response): Promise<void> {
+  const body: AdminCreateUserDto = req.body || {};
+  const ip = req.ip || req.socket.remoteAddress || 'unknown';
+  const effectivePassword = body.password && body.password.length > 0 ? body.password : 'arena123';
+
+  const validation = validateRegistrationPayload(
+    { ...body, password: effectivePassword },
+    { allowPrivilegedRoles: true }
+  );
+
+  if (!validation.valid) {
+    res.status(400).json({ error: validation.error });
+    return;
+  }
+
+  const emailClean = body.email.trim().toLowerCase();
+  const cleanName = sanitizeOptionalText(body.name, 150) || body.name.trim();
+  const role = isValidUserRole(body.role) ? body.role : 'JOGADOR';
+  const skillLevel = body.skillLevel || 'INTERMEDIARIO';
+  const ageGroup = body.ageGroup || 'ADULTO';
+  const isMinor = ageGroup === 'KIDS';
+
+  try {
+    const [existing] = await pool.query<any[]>(
+      'SELECT id FROM users WHERE email = ?',
+      [emailClean]
+    );
+    if (existing.length > 0) {
+      res.status(409).json({ error: 'Este e-mail já está cadastrado' });
+      return;
+    }
+
+    const passwordHash = await bcrypt.hash(effectivePassword, 10);
+    const conn = await pool.getConnection();
+    try {
+      await conn.beginTransaction();
+
+      const [userRes] = await conn.query<any>(
+        'INSERT INTO users (name, email, password_hash, role) VALUES (?, ?, ?, ?)',
+        [cleanName, emailClean, passwordHash, role]
+      );
+      const newUserId = userRes.insertId;
+
+      await conn.query(
+        `INSERT INTO player_profiles (
+          user_id, skill_level, age_group, training_goals, preferences,
+          physical_restrictions, guardian_name, guardian_consent, telemetry_consent
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          newUserId,
+          skillLevel,
+          ageGroup,
+          sanitizeOptionalText(body.trainingGoals, 500) ?? null,
+          sanitizeOptionalText(body.preferences, 500) ?? null,
+          sanitizeOptionalText(body.physicalRestrictions, isMinor ? 200 : 500) ?? null,
+          isMinor ? sanitizeOptionalText(body.guardianName, 150) ?? null : null,
+          isMinor && body.guardianConsent ? 1 : 0,
+          body.telemetryConsent !== undefined ? (body.telemetryConsent ? 1 : 0) : isMinor ? 0 : 1,
+        ]
+      );
+
+      await conn.commit();
+
+      await logAuditEvent(
+        'CREATE_USER_ADMIN',
+        req.user?.id,
+        req.user?.name,
+        ip,
+        `Criou usuário ${emailClean} com perfil ${role}`
+      );
+
+      const [createdRows] = await pool.query<any[]>(
+        `${USER_WITH_PROFILE_SELECT} WHERE u.id = ?`,
+        [newUserId]
+      );
+      res.status(201).json(mapUserRowToUserWithProfile(createdRows[0]));
+    } catch (err) {
+      await conn.rollback();
+      throw err;
+    } finally {
+      conn.release();
+    }
+  } catch (err: any) {
+    console.error('Erro ao criar usuário via admin:', err);
+    res.status(500).json({ error: 'Erro interno ao cadastrar usuário' });
+  }
+}
+
 export async function getUserById(req: Request, res: Response): Promise<void> {
   const userId = parseInt(req.params.id, 10);
+  const anonymizeDemo =
+    req.query.anonymize === 'true' || req.query.anonymize === '1';
 
   if (isNaN(userId)) {
     res.status(400).json({ error: 'ID de usuário inválido' });
@@ -76,11 +162,7 @@ export async function getUserById(req: Request, res: Response): Promise<void> {
 
   try {
     const [rows] = await pool.query<any[]>(
-      `SELECT u.id, u.name, u.email, u.role, u.is_active, u.created_at, u.updated_at,
-              p.id as profile_id, p.skill_level, p.age_group, p.training_goals, p.preferences, p.physical_restrictions
-       FROM users u
-       LEFT JOIN player_profiles p ON p.user_id = u.id
-       WHERE u.id = ?`,
+      `${USER_WITH_PROFILE_SELECT} WHERE u.id = ?`,
       [userId]
     );
 
@@ -90,28 +172,11 @@ export async function getUserById(req: Request, res: Response): Promise<void> {
       return;
     }
 
-    const user: UserWithProfile = {
-      id: r.id,
-      name: r.name,
-      email: r.email,
-      role: r.role,
-      isActive: Boolean(r.is_active),
-      createdAt: r.created_at,
-      updatedAt: r.updated_at,
-      profile: r.profile_id
-        ? {
-            id: r.profile_id,
-            userId: r.id,
-            skillLevel: r.skill_level,
-            ageGroup: r.age_group,
-            trainingGoals: r.training_goals,
-            preferences: r.preferences,
-            physicalRestrictions: r.physical_restrictions,
-            createdAt: r.created_at,
-            updatedAt: r.updated_at,
-          }
-        : null,
-    };
+    const user = applyPrivacyPolicyToUser(
+      mapUserRowToUserWithProfile(r),
+      req.user!,
+      { anonymizeDemo }
+    );
 
     res.json(user);
   } catch (err: any) {
@@ -122,7 +187,7 @@ export async function getUserById(req: Request, res: Response): Promise<void> {
 
 export async function updateUser(req: Request, res: Response): Promise<void> {
   const userId = parseInt(req.params.id, 10);
-  const body: UpdateUserDto = req.body;
+  const body: UpdateUserDto = req.body || {};
   const ip = req.ip || req.socket.remoteAddress || 'unknown';
 
   if (isNaN(userId)) {
@@ -135,14 +200,33 @@ export async function updateUser(req: Request, res: Response): Promise<void> {
     const values: any[] = [];
 
     if (body.name !== undefined) {
+      const cleanName = sanitizeOptionalText(body.name, 150);
+      if (!cleanName || cleanName.length < 2) {
+        res.status(400).json({ error: 'Nome de usuário inválido' });
+        return;
+      }
       updates.push('name = ?');
-      values.push(body.name.trim());
+      values.push(cleanName);
     }
+
     if (body.role !== undefined) {
+      if (!isValidUserRole(body.role)) {
+        res.status(400).json({ error: 'Perfil de acesso inválido' });
+        return;
+      }
+      if (req.user?.id === userId && body.role !== 'ADMIN') {
+        res.status(400).json({ error: 'Não é permitido remover o próprio privilégio de Administrador' });
+        return;
+      }
       updates.push('role = ?');
       values.push(body.role);
     }
+
     if (body.isActive !== undefined) {
+      if (req.user?.id === userId && !body.isActive) {
+        res.status(400).json({ error: 'Não é permitido desativar a própria conta logada' });
+        return;
+      }
       updates.push('is_active = ?');
       values.push(body.isActive ? 1 : 0);
     }
@@ -153,7 +237,15 @@ export async function updateUser(req: Request, res: Response): Promise<void> {
     }
 
     values.push(userId);
-    await pool.query(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`, values);
+    const [result] = await pool.query<any>(
+      `UPDATE users SET ${updates.join(', ')} WHERE id = ?`,
+      values
+    );
+
+    if (result.affectedRows === 0) {
+      res.status(404).json({ error: 'Usuário não encontrado' });
+      return;
+    }
 
     await logAuditEvent(
       'UPDATE_USER_ADMIN',

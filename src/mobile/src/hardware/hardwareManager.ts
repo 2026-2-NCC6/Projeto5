@@ -7,8 +7,9 @@ import { SerialCommand, SerialEvent } from '../../../packages/shared/src/protoco
 import { EventListener, ISerialDriver, StatusListener } from './serialInterface';
 import { mockSerialDriver } from './mockSerialDriver';
 import { webSerialDriver, SerialLogListener } from './webSerialDriver';
+import { remoteGatewayDriver } from './remoteGatewayDriver';
 
-export type DriverMode = 'WEB_SERIAL' | 'MOCK';
+export type DriverMode = 'WEB_SERIAL' | 'MOCK' | 'REMOTE_GATEWAY';
 
 export interface SerialLogEntry {
   id: string;
@@ -45,7 +46,9 @@ export class HardwareManager implements ISerialDriver {
   }
 
   public get activeDriver(): ISerialDriver {
-    return this.activeMode === 'WEB_SERIAL' ? webSerialDriver : mockSerialDriver;
+    if (this.activeMode === 'WEB_SERIAL') return webSerialDriver;
+    if (this.activeMode === 'REMOTE_GATEWAY') return remoteGatewayDriver;
+    return mockSerialDriver;
   }
 
   public get logHistory(): SerialLogEntry[] {
@@ -71,7 +74,12 @@ export class HardwareManager implements ISerialDriver {
     this.bindDriver(driver);
 
     this.notifyStatus(driver.isConnected, driver.deviceName ?? undefined);
-    this.notifyLog('INFO', `Modo de driver alterado -> ${newMode === 'WEB_SERIAL' ? 'Web Serial USB (115200 bps)' : 'Simulador Virtual (Mock)'}`);
+    const modeLabels: Record<DriverMode, string> = {
+      WEB_SERIAL: 'Web Serial USB (115200 bps)',
+      MOCK: 'Simulador Virtual (Mock)',
+      REMOTE_GATEWAY: 'Ponte Remota WebSocket (Celular <-> Arduino no PC)',
+    };
+    this.notifyLog('INFO', `Modo de driver alterado -> ${modeLabels[newMode]}`);
   }
 
   private bindDriver(driver: ISerialDriver): void {

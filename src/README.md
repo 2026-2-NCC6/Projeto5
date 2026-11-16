@@ -1,79 +1,80 @@
 # Entregas do PI
+
 ### **DECLARAÇÃO DE USO DE INTELIGÊNCIA ARTIFICIAL**
 
 ## Entrega 1
+
 <br><br>
 
-### Módulo do sistema 1
+### Firmware Embarcado e Simulação de Circuito (`src/firmware/smart_tennis_arduino/`)
 
-| **Aluno(s) Responsável(veis)** |[preencher] |
+| **Aluno(s) Responsável(veis)** | Lucas Oliveira da Silva, Matheus Rossaneze, Pedro Schaurich Maia e Phelipe Antonio de Souza [Grupo 5 — LMPP](cite: 3, 13, 14, 15) |
 | :--- | :--- |
-| **Ferramenta utilizada** | [preencher] |
-| **Versão/modelo** | [preencher] |
-| **Disciplina / Trabalho** | [preencher] |
-| **Finalidade de uso** | [preencher] |
-| ***Prompts* principais utilizados** | [preencher] |
-| **Trechos ou entregas afetadas** | [preencher] |
+| **Ferramenta utilizada** | Google Gemini e Claude [Anthropic](cite: 3, 13, 14, 15) |
+| **Versão/modelo** | Gemini 3.8 Flash e Claude Sonnet / Opus[cite: 3, 13, 15] |
+| **Disciplina / Trabalho** | Sistemas Embarcados e Robótica; Projeto Interdisciplinar — Internet das Coisas e Robótica — Entrega 1 [Prototipação Embarcada, Lógica Não Bloqueante e Proteção Serial](cite: 3, 4, 13, 14, 15) |
+| **Finalidade de uso** | Apoio na codificação inicial da lógica embarcada em C++ para Arduino Uno R3 em ambiente Tinkercad Circuits utilizando `millis()` para temporização não bloqueante[cite: 14]; definição do mapeamento de pinos para leitura analógica dos 5 sensores piezoelétricos (`A0` a `A4`), controle em cascata de registradores 74HC595 (`D11`, `D12`, `D13`), sinalização sonora por buzzer e telemetria via Monitor Serial[cite: 3, 4, 13, 14]; e implementação de validação de limite de buffer na porta Serial e interrupção prioritária (`SAFE_STOP`) mitigando riscos apontados na auditoria SAST[cite: 4]. |
+| ***Prompts* principais utilizados** | 1) `"Auxilie no desenvolvimento da lógica em C++ para Arduino Uno no Tinkercad do projeto 'Acerte o Alvo', contemplando leitura das 5 entradas analógicas de impacto (A0 a A4), temporização não bloqueante com millis(), controle de indicadores visuais e sonoros e envio de telemetria pelo Monitor Serial."`[cite: 14]<br>2) `"Implemente validação de tamanho de buffer na leitura da porta Serial do Arduino e tratamento prioritário para o comando de interrupção de segurança (SAFE_STOP / !EMG), prevenindo Buffer Overflow e injeção de pacotes malformados."`[cite: 4] |
+| **Trechos ou entregas afetadas** | Protótipo funcional no Tinkercad Circuits e base lógica que originou `src/firmware/smart_tennis_arduino/smart_tennis_arduino.ino` e `src/firmware/smart_tennis_arduino/README.md` (pinagem `A0..A4`, controle temporal `millis()` e rotina `SAFE_STOP`)[cite: 3, 4, 8, 13, 14, 15]. |
 
+### Pacote de Domínio Compartilhado e Protocolo Serial (`src/packages/shared/`)
 
-### Módulo do sistema 2
-
-| **Aluno(s) Responsável(veis)** |[preencher] |
+| **Aluno(s) Responsável(veis)** | Phelipe Antonio de Souza e Pedro Schaurich Maia [com apoio da equipe Grupo 5 — LMPP: Lucas Oliveira da Silva e Matheus Rossaneze](cite: 3, 4, 15) |
 | :--- | :--- |
-| **Ferramenta utilizada** | [preencher] |
-| **Versão/modelo** | [preencher] |
-| **Disciplina / Trabalho** | [preencher] |
-| **Finalidade de uso** | [preencher] |
-| ***Prompts* principais utilizados** | [preencher] |
-| **Trechos ou entregas afetadas** | [preencher] |
+| **Ferramenta utilizada** | Claude Code (Anthropic Claude) e Google Gemini [em apoio ao Snyk CLI, Cppcheck e npm audit](cite: 4, 15) |
+| **Versão/modelo** | Anthropic Claude (com plugin `expo@claude-plugins-official`) e Gemini 3.8 Flash[cite: 4, 15] |
+| **Disciplina / Trabalho** | Projeto Interdisciplinar — Internet das Coisas e Robótica; Redes de Computadores e Cibersegurança; Teoria da Computação e Linguagens Formais — Entrega 1 [Domínio Compartilhado, Contratos Seriais e Testes Unitários](cite: 4, 8, 15) |
+| **Finalidade de uso** | Estruturação inicial (*scaffolding*) do pacote compartilhado em TypeScript (`src/packages/shared/`) isolando os contratos de protocolos de treino (`drills.ts`), a tipagem formal da Máquina de Estados Finitos de Mealy (`IDLE`, `TARGET_ACTIVE`, `EVALUATING`, `SAFE_STOP`, `FINISHED`), o parser bidirecional de pacotes seriais JSON/`!EMG` (`serial.ts`), o algoritmo determinístico de cálculo de pontuação por tempo de reação e precisão (`scoring.ts` — `RN03`) e a suíte inicial de 11 testes unitários automatizados (`shared.test.ts`)[cite: 8, 15]; além da verificação de segurança estática e de dependências com Snyk e `npm audit`[cite: 4]. |
+| ***Prompts* principais utilizados** | 1) `"Estruture o pacote compartilhado TypeScript ('packages/shared') do monorepo contendo os contratos de protocolos de treino, as interfaces da Máquina de Estados Finitos de Mealy, o parser bidirecional do protocolo serial JSON/!EMG, a função determinística de cálculo de pontuação (RN03) e a suíte de testes unitários automatizados."` [14/09/2026](cite: 8, 15)<br>2) `"Execute e valide a auditoria estática de código (snyk code test) e de dependências (snyk test e npm audit) sobre os pacotes TypeScript do diretório src/."`[cite: 4] |
+| **Trechos ou entregas afetadas** | `.gitignore`, `src/packages/shared/package.json`, `src/packages/shared/tsconfig.json`, `src/packages/shared/src/index.ts`, `src/packages/shared/src/contracts/drills.ts`, `src/packages/shared/src/fsm/types.ts`, `src/packages/shared/src/protocol/serial.ts`, `src/packages/shared/src/rules/scoring.ts` e `src/packages/shared/test/shared.test.ts` (`commits d10ba3b9` e `da1a7e57`)[cite: 8, 15, 26]. |
 
-### Módulo do sistema 3
+### Aplicativo Mobile/Web e Motor de Jogo FSM (`src/mobile/`)
 
-| **Aluno(s) Responsável(veis)** |[preencher] |
+| **Aluno(s) Responsável(veis)** | Phelipe Antonio de Souza e Pedro Schaurich Maia [com apoio da equipe Grupo 5 — LMPP: Lucas Oliveira da Silva e Matheus Rossaneze](cite: 3, 9, 15) |
 | :--- | :--- |
-| **Ferramenta utilizada** | [preencher] |
-| **Versão/modelo** | [preencher] |
-| **Disciplina / Trabalho** | [preencher] |
-| **Finalidade de uso** | [preencher] |
-| ***Prompts* principais utilizados** | [preencher] |
-| **Trechos ou entregas afetadas** | [preencher] |
+| **Ferramenta utilizada** | Claude Code [Anthropic Claude](cite: 15) |
+| **Versão/modelo** | Anthropic Claude configurado com o plugin `expo@claude-plugins-official`[cite: 15] |
+| **Disciplina / Trabalho** | Projeto Interdisciplinar — Internet das Coisas e Robótica; Teoria da Computação e Linguagens Formais — Entrega 1 [Cliente Mobile/Web Expo, Motor FSM e Simulador de Hardware](cite: 9, 15) |
+| **Finalidade de uso** | Implementação da estrutura base do aplicativo multiplataforma em React Native / Expo (SDK 57) e TypeScript, compreendendo o hook da Máquina de Estados Finitos de Mealy (`useGameEngine.ts`), a interface de abstração serial e o driver simulador virtual (`serialInterface.ts` e `mockSerialDriver.ts`), além dos componentes visuais do placar em tempo real (`ScoreHUD.tsx`), quadra interativa de 5 alvos (`TargetBoard.tsx`), botão de parada de emergência (`EmergencyStopButton.tsx`) e modal de resumo pós-sessão (`SessionSummaryModal.tsx`)[cite: 9, 15]. |
+| ***Prompts* principais utilizados** | 1) `"Crie a estrutura base do aplicativo em React Native com Expo e TypeScript integrando o motor de jogo baseado em Máquina de Estados Finitos de Mealy (useGameEngine), o driver simulador de eventos seriais (mockSerialDriver), a matriz interativa de 5 alvos (TargetBoard), o placar HUD (ScoreHUD), o seletor de modo Kids/Adulto e o acionamento prioritário de parada de emergência (!EMG)."` [14/09/2026](cite: 9, 15) |
+| **Trechos ou entregas afetadas** | `src/mobile/.claude/settings.json`, `src/mobile/AGENTS.md`, `src/mobile/CLAUDE.md`, `src/mobile/.gitignore`, `src/mobile/LICENSE`, `src/mobile/app.json`, `src/mobile/index.ts`, `src/mobile/package.json`, `src/mobile/tsconfig.json`, `src/mobile/assets/`, `src/mobile/App.tsx`, `src/mobile/src/components/ScoreHUD.tsx`, `src/mobile/src/components/TargetBoard.tsx`, `src/mobile/src/components/EmergencyStopButton.tsx`, `src/mobile/src/components/SessionSummaryModal.tsx`, `src/mobile/src/fsm/useGameEngine.ts`, `src/mobile/src/hardware/serialInterface.ts` e `src/mobile/src/hardware/mockSerialDriver.ts` (`commits d10ba3b9` e `da1a7e57`)[cite: 9, 15]. |
 
 ## Entrega 2
+
 <br><br>
 
-### Módulo do sistema 1
+### Firmware Embarcado Arduino Uno R3 (`src/firmware/smart_tennis_arduino/`)
 
-| **Aluno(s) Responsável(veis)** |[preencher] |
+| **Aluno(s) Responsável(veis)** | Pedro Schaurich Maia e Lucas Oliveira da Silva [com apoio da equipe Grupo 5 — LMPP: Matheus Rossaneze e Phelipe Antonio de Souza](cite: 3, 7, 14, 15) |
 | :--- | :--- |
-| **Ferramenta utilizada** | [preencher] |
-| **Versão/modelo** | [preencher] |
-| **Disciplina / Trabalho** | [preencher] |
-| **Finalidade de uso** | [preencher] |
-| ***Prompts* principais utilizados** | [preencher] |
-| **Trechos ou entregas afetadas** | [preencher] |
+| **Ferramenta utilizada** | Google Antigravity [Google Gemini](cite: 7, 8, 15) |
+| **Versão/modelo** | Gemini 4 Argon (Medium) e Gemini 3.8 Flash [Medium](cite: 15) |
+| **Disciplina / Trabalho** | Sistemas Embarcados e Robótica; Projeto Interdisciplinar — Internet das Coisas e Robótica — Entrega 2 [Firmware Embarcado Final C++, Protocolo Serial Bidirecional e Calibração de Bancada](cite: 7, 8, 15) |
+| **Finalidade de uso** | Desenvolvimento e depuração do firmware embarcado final em C++ (`smart_tennis_arduino.ino`, 536 linhas) para Arduino Uno R3: aquisição analógica contínua dos 5 sensores piezoelétricos (`A0..A4`) com detecção por variação brusca ($\Delta$, `DELTA_MINIMO = 20`) e filtro de *debounce* (`TEMPO_DEBOUNCE = 120`), acionamento de indicadores luminosos e sonoros, interrupção física `INT0` no pino `D2` para parada de emergência imediata (`!EMG` / `safe_stop`) e comunicação serial bidirecional a `115200 baud` (frames JSON e pacotes `HIT:<alvo>:<leitura>:<tempoReacao>`)[cite: 7, 8, 15]; implementação dos comandos de congelamento de janela ativa (`PAUSE`), retomada (`RESUME`), disparo (`FEED`) e diagnóstico individual dos 5 canais piezo[cite: 15]; além de scripts auxiliares para testes de bancada[cite: 7, 8]. |
+| ***Prompts* principais utilizados** | 1) `"Desenvolva o firmware C++ para Arduino Uno R3 ('smart_tennis_arduino.ino') integrando leitura analógica dos 5 sensores piezoelétricos (A0 a A4) com filtro de debounce e limiar configurável, acionamento de atuadores, interrupção de hardware INT0 para parada de emergência (!EMG) e comunicação serial bidirecional a 115200 baud."` [23/10/2026](cite: 8, 15)<br>2) `"Evolua o protocolo serial e o firmware Arduino na Fase 3 para suportar congelamento exato do cronômetro de janela ativa no comando PAUSE, retomada do tempo restante em RESUME, suporte ao comando FEED e diagnóstico individual dos 5 canais piezoelétricos."` [04/11/2026](cite: 15)<br>3) `"Ajuste a rotina de detecção de impacto nos 5 sensores piezoelétricos (const int PIEZO[5] = { A0, A1, A2, A3, A4 }) utilizando cálculo de variação delta (DELTA_MINIMO = 20) e janela de debounce (TEMPO_DEBOUNCE = 120 ms) calibrados nos testes de bancada."` [05/11/2026](cite: 7, 8) |
+| **Trechos ou entregas afetadas** | `src/firmware/smart_tennis_arduino/smart_tennis_arduino.ino`, `src/firmware/smart_tennis_arduino/README.md` e `src/packages/shared/src/protocol/serial.ts` (`commits ef9ae210` e `bb197f42`)[cite: 7, 8, 15]. |
 
+### Backend REST API, Banco de Dados MySQL e Segurança (`src/backend/` e `src/packages/shared/`)
 
-### Módulo do sistema 2
-
-| **Aluno(s) Responsável(veis)** |[preencher] |
+| **Aluno(s) Responsável(veis)** | Pedro Schaurich Maia [com contribuições integradas da equipe Grupo 5 — LMPP: Lucas Oliveira da Silva, Matheus Rossaneze e Phelipe Antonio de Souza](cite: 3, 15) |
 | :--- | :--- |
-| **Ferramenta utilizada** | [preencher] |
-| **Versão/modelo** | [preencher] |
-| **Disciplina / Trabalho** | [preencher] |
-| **Finalidade de uso** | [preencher] |
-| ***Prompts* principais utilizados** | [preencher] |
-| **Trechos ou entregas afetadas** | [preencher] |
+| **Ferramenta utilizada** | Google Antigravity [Google Gemini](cite: 15) |
+| **Versão/modelo** | Gemini 4 Argon (Medium) e Gemini 3.8 Flash [Medium](cite: 15) |
+| **Disciplina / Trabalho** | Projeto Interdisciplinar — Internet das Coisas e Robótica; Redes de Computadores e Cibersegurança — Entrega 2 [API REST Node.js/Express/TypeScript, Persistência MySQL/Docker, Mitigações OWASP/Aikido/LGPD e OpenAPI 3.0.3](cite: 6, 8, 9, 15) |
+| **Finalidade de uso** | Construção e evolução da API REST em Node.js 22, Express 4.21.2 e TypeScript com persistência relacional em MySQL 8.0 e containerização Docker (`Dockerfile` *multi-stage* com usuário não-privilegiado `USER node` e `docker-compose.yml`)[cite: 6, 8, 9, 15]; implementação da Fase 1 de segurança (cabeçalhos OWASP, *rate limiter* de `25 req/15min`, *blacklist* em memória para revogação de JWT no logout, controle de acesso RBAC estrito para `ADMIN`, `TREINADOR` e `JOGADOR`, sanitização XSS e conformidade LGPD para menores de idade com consentimento parental, anonimização `?anonymize=true` e exclusão de conta `DELETE /api/v1/auth/me`)[cite: 15]; e implementação da Fase 2 com modelagem relacional de 9 novas tabelas (`categories`, `iot_devices`, `drills`, `drill_versions`, `training_sessions`, `session_events`, `safety_incidents`, `system_settings` e `mother_platform_sync_logs`), validador determinístico de treinos (`POST /api/v1/drills/validate`), persistência idempotente de sessões (`idempotencyKey`), pareamento IoT por token (`POST /api/v1/devices/pair`), observabilidade (`X-Correlation-Id` e métricas `avg`, `p95`, `max`), documentação interativa OpenAPI 3.0.3 (`GET /api/v1/docs`) e sincronização com a Plataforma Mãe SmartTennis[cite: 15]. |
+| ***Prompts* principais utilizados** | 1) `"Implemente o Backend REST API em Node.js, Express e TypeScript integrado ao MySQL via Docker, incluindo autenticação JWT com hash bcrypt, controle de acesso baseado em papéis (RBAC) e trilha de auditoria (audit_logs)."` [19/10/2026](cite: 8, 9, 15)<br>2) `"Inicialize e valide localmente os serviços do projeto (container Docker MySQL, migrations/seeds do banco de dados e servidor da API REST)."` [02/11/2026](cite: 15)<br>3) `"Implemente a Fase 1 do plano de engenharia: cabeçalhos de segurança OWASP, rate limiting contra força bruta, revogação de tokens JWT no logout, bloqueio de escalonamento de privilégios no cadastro público, regras LGPD de proteção e consentimento para menores, exclusão de conta (Art. 18 LGPD) e execução sem root no Dockerfile."` [04/11/2026](cite: 6, 15)<br>4) `"Implemente a Fase 2 do plano de engenharia: modelagem relacional das 9 tabelas no MySQL, rotas versionadas /api/v1/* para treinos com controle de versão e validação pré-publicação, gravação idempotente de sessões e telemetria, registro de incidentes de segurança, pareamento de dispositivos IoT, middleware de observabilidade, especificação OpenAPI 3.0.3 e adaptador de integração com a Plataforma Mãe."` [04/11/2026](cite: 15) |
+| **Trechos ou entregas afetadas** | `start-mysql.bat`, `README.md`, `src/backend/.env.example`, `src/backend/Dockerfile`, `src/backend/docker-compose.yml`, `src/backend/package.json`, `src/backend/package-lock.json`, `src/backend/tsconfig.json`, `src/backend/src/config.ts`, `src/backend/src/db.ts`, `src/backend/src/server.ts`, `src/backend/src/middlewares/auth.ts`, `src/backend/src/middlewares/security.ts`, `src/backend/src/middlewares/observability.ts`, `src/backend/src/controllers/authController.ts`, `src/backend/src/controllers/userController.ts`, `src/backend/src/controllers/auditController.ts`, `src/backend/src/controllers/drillController.ts`, `src/backend/src/controllers/sessionController.ts`, `src/backend/src/controllers/incidentController.ts`, `src/backend/src/controllers/adminController.ts`, `src/backend/src/routes/authRoutes.ts`, `src/backend/src/routes/userRoutes.ts`, `src/backend/src/routes/auditRoutes.ts`, `src/backend/src/routes/drillRoutes.ts`, `src/backend/src/routes/sessionRoutes.ts`, `src/backend/src/routes/incidentRoutes.ts`, `src/backend/src/routes/adminRoutes.ts`, `src/backend/src/routes/motherPlatformRoutes.ts`, `src/backend/src/services/motherPlatformService.ts`, `src/backend/src/docs/openapi.ts`, `documentos/openapi-smart-tennis-arena.json`, `src/packages/shared/src/contracts/user.ts`, `src/packages/shared/src/contracts/drills.ts`, `src/packages/shared/src/contracts/sessions.ts`, `src/packages/shared/src/contracts/admin.ts`, `src/packages/shared/src/security/validation.ts` e expansão de `src/packages/shared/test/shared.test.ts` para 17 testes automatizados (`commits 50acd2bd`, `3e914d2f` e `bb197f42`)[cite: 8, 9, 15, 26]. |
 
-### Módulo do sistema 3
+### Aplicativo Mobile/Web, Driver Web Serial e Interface Acessível (`src/mobile/`)
 
-| **Aluno(s) Responsável(veis)** |[preencher] |
+| **Aluno(s) Responsável(veis)** | Pedro Schaurich Maia e Phelipe Antonio de Souza [com contribuições integradas da equipe Grupo 5 — LMPP: Lucas Oliveira da Silva e Matheus Rossaneze](cite: 3, 9, 15) |
 | :--- | :--- |
-| **Ferramenta utilizada** | [preencher] |
-| **Versão/modelo** | [preencher] |
-| **Disciplina / Trabalho** | [preencher] |
-| **Finalidade de uso** | [preencher] |
-| ***Prompts* principais utilizados** | [preencher] |
-| **Trechos ou entregas afetadas** | [preencher] |
+| **Ferramenta utilizada** | Google Antigravity [Google Gemini](cite: 15) |
+| **Versão/modelo** | Gemini 4 Argon [Medium](cite: 15) |
+| **Disciplina / Trabalho** | Projeto Interdisciplinar — Internet das Coisas e Robótica; Sistemas Embarcados e Robótica; Teoria da Computação e Linguagens Formais — Entrega 2 [Driver Web Serial USB, Interface Acessível/Responsiva e Execução em Quadra Fase 3](cite: 9, 10, 15) |
+| **Finalidade de uso** | Implementação do driver assíncrono `webSerialDriver.ts` (Web Serial API `navigator.serial`) para conexão USB direta com o Arduino Uno R3 e do orquestrador `hardwareManager.ts` para comutação transparente entre Simulador (`MOCK`) e Hardware Real (`WEB_SERIAL`)[cite: 9, 15]; reformulação visual completa aplicando a identidade visual branca e verde esmeralda definida pelo grupo, estruturada em 5 abas com barra global de acessibilidade (`AccessibilityContext.tsx`: alto contraste WCAG, escala tipográfica `A+`, síntese de voz/áudio e feedback háptico) e responsividade multi-dispositivos (`useResponsive.ts` para mobile, tablet e desktop)[cite: 10, 15]; e implementação da Fase 3 com simulador balístico da máquina lançadora Spinshot Plus-2 (`ballMachineSimulator.ts` com trava de segurança de `65 km/h` no Modo Kids), checklist obrigatório pré-sessão (`SessionPrepModal.tsx`), HUD de telemetria em tempo real (`HardwareSensorHUD.tsx`), ações de `Pausar`/`Retomar`/`Abortar` no motor FSM (`useGameEngine.ts`), reporte de incidentes de emergência (`POST /api/v1/incidents`) e pareamento IoT autenticado por token[cite: 15]. |
+| ***Prompts* principais utilizados** | 1) `"Implemente o driver Web Serial API (webSerialDriver.ts), o gerenciador de comutação entre modo físico e simulado (hardwareManager.ts) e os modais de autenticação JWT (AuthModal), gestão RBAC/auditoria (UserManagementModal) e diagnóstico de hardware (HardwareModal)."` [19/10/2026 e 23/10/2026](cite: 9, 15)<br>2) `"Realize uma reformulação visual no aplicativo aplicando a paleta de cores branca e verde esmeralda definida pelo grupo, estruturando a navegação em 5 abas com design minimalista, ícones vetoriais próprios (Icons.tsx) e barra global de acessibilidade (alto contraste, ampliação de fonte e feedback sonoro)."` (02/11/2026 — `Gemini 4 Argon (Medium)`)[cite: 10, 15]<br>3) `"Torne a interface responsiva para diferentes resoluções de tela (smartphones, tablets e monitores web desktop) por meio de breakpoints reativos (useResponsive.ts), preservando integralmente a mecânica e as regras de negócio existentes."` (02/11/2026 — `Gemini 4 Argon (Medium)`)[cite: 15]<br>4) `"Implemente a Fase 3 no aplicativo: simulador balístico Spinshot Plus-2 (ballMachineSimulator.ts com limite de segurança no Modo Kids), checklist obrigatório pré-sessão (SessionPrepModal.tsx), painel de telemetria em tempo real (HardwareSensorHUD.tsx), controles de Pausar/Retomar/Abortar integrados à FSM e ao Arduino, pareamento IoT com token e envio automático de sessões e incidentes para a API."` [04/11/2026](cite: 15) |
+| **Trechos ou entregas afetadas** | `src/mobile/App.tsx`, `src/mobile/metro.config.js`, `src/mobile/.env.example`, `src/mobile/package-lock.json`, `src/mobile/src/services/api.ts`, `src/mobile/src/context/AuthContext.tsx`, `src/mobile/src/context/AccessibilityContext.tsx`, `src/mobile/src/hardware/webSerialDriver.ts`, `src/mobile/src/hardware/hardwareManager.ts`, `src/mobile/src/hardware/mockSerialDriver.ts`, `src/mobile/src/hardware/ballMachineSimulator.ts`, `src/mobile/src/fsm/useGameEngine.ts`, `src/mobile/src/components/useResponsive.ts`, `src/mobile/src/components/Icons.tsx`, `src/mobile/src/components/DrillCatalogCard.tsx`, `src/mobile/src/components/SessionPrepModal.tsx`, `src/mobile/src/components/HardwareSensorHUD.tsx`, `src/mobile/src/components/ScoreHUD.tsx`, `src/mobile/src/components/TargetBoard.tsx`, `src/mobile/src/components/HardwareModal.tsx`, `src/mobile/src/components/AuthModal.tsx`, `src/mobile/src/components/UserManagementModal.tsx`, `src/mobile/src/components/SessionSummaryModal.tsx` e `src/mobile/src/components/EmergencyStopButton.tsx` (`commits 50acd2bd`, `ef9ae210`, `3e914d2f` e `bb197f42`)[cite: 9, 15]. |
 
 ***Declaro que o uso acima descrito está em conformidade com o GUIA PARA O USO RESPONSÁVEL DE
 INTELIGÊNCIA ARTIFICIAL NA FECAP e que o conteúdo final é de minha plena responsabilidade

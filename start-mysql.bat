@@ -1,13 +1,13 @@
 @echo off
 echo ========================================================
-echo   Iniciando MySQL (MariaDB) para Smart Tennis Arena...
+echo   Iniciando MySQL 8.0 para Smart Tennis Arena...
 echo ========================================================
-if not exist "C:\Users\testelab\mysql_data" (
-    echo Criando diretorio de dados em C:\Users\testelab\mysql_data...
-    mkdir "C:\Users\testelab\mysql_data"
-    xcopy /E /I /Y "C:\xampp\mysql\data\*" "C:\Users\testelab\mysql_data"
-    attrib -r "C:\Users\testelab\mysql_data\*" /s /d
+set "MYSQL_BIN=C:\Program Files\MySQL\MySQL Server 8.0\bin\mysqld.exe"
+if not exist "%MYSQL_BIN%" (
+    if exist "C:\xampp\mysql\bin\mysqld.exe" (
+        set "MYSQL_BIN=C:\xampp\mysql\bin\mysqld.exe"
+    )
 )
 
-echo Iniciando mysqld na porta 3306...
-"C:\xampp\mysql\bin\mysqld.exe" --datadir="C:\Users\testelab\mysql_data" --port=3306 --console
+echo Iniciando mysqld com .mysql_data\my.ini na porta 3307...
+"%MYSQL_BIN%" --defaults-file="%~dp0.mysql_data\my.ini" --console

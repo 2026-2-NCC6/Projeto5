@@ -1,13 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
+  Platform,
   SafeAreaView,
   ScrollView,
+  StatusBar as RNStatusBar,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
-  StatusBar,
 } from 'react-native';
+import { StatusBar } from 'expo-status-bar';
 import { useGameEngine } from './src/fsm/useGameEngine';
 import { TargetBoard } from './src/components/TargetBoard';
 import { ScoreHUD } from './src/components/ScoreHUD';
@@ -15,6 +17,8 @@ import { DrillCatalogCard } from './src/components/DrillCatalogCard';
 import { DrillEditorView } from './src/components/DrillEditorModal';
 import { SessionSummaryView } from './src/components/SessionSummaryModal';
 import { HardwareView } from './src/components/HardwareModal';
+import { SessionPrepModal } from './src/components/SessionPrepModal';
+import { HardwareSensorHUD } from './src/components/HardwareSensorHUD';
 import { ManagementView } from './src/components/UserManagementModal';
 import { AuthView } from './src/components/AuthModal';
 import { useResponsive } from './src/components/useResponsive';
@@ -99,6 +103,7 @@ function MainWorkspace() {
 
   const [activeTab, setActiveTab] = useState<AppTab>('ARENA');
   const [profilesCount, setProfilesCount] = useState<number>(4);
+<<<<<<< HEAD
   const [catalogDrills, setCatalogDrills] = useState<DrillDefinition[]>(DEFAULT_DRILLS);
   const [catalogSource, setCatalogSource] = useState<'API' | 'CACHE_OFFLINE'>('API');
   const [editorTargetDrill, setEditorTargetDrill] = useState<DrillDefinition | null>(
@@ -112,6 +117,9 @@ function MainWorkspace() {
       setCatalogSource(source);
     });
   }, []);
+=======
+  const [showPrepModal, setShowPrepModal] = useState<boolean>(false);
+>>>>>>> 03e98db8d84f475b5e841e8cac192153a6d66d0c
 
   // Sincronização automática do perfil do praticante (RF02) com o modo do jogo (RF11)
   useEffect(() => {
@@ -167,7 +175,12 @@ function MainWorkspace() {
 
   const firstName = user ? user.name.split(' ')[0] : 'Visitante';
   const userInitials = user ? getInitials(user.name) : 'VI';
-  const hwBadge = hardwareManager.mode === 'WEB_SERIAL' ? 'USB' : 'MOCK';
+  const hwBadge =
+    hardwareManager.mode === 'WEB_SERIAL'
+      ? 'USB'
+      : hardwareManager.mode === 'REMOTE_GATEWAY'
+      ? 'LAN'
+      : 'MOCK';
 
   const tabs: Array<{
     key: AppTab;
@@ -222,7 +235,7 @@ function MainWorkspace() {
 
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.bg }]}>
-      <StatusBar barStyle="dark-content" backgroundColor={theme.surface} />
+      <StatusBar style="dark" />
 
       {/* TOP HEADER RESPONSIVO (Compacto em Celular, Completo em Web/Tablet) */}
       <View
@@ -232,7 +245,12 @@ function MainWorkspace() {
             backgroundColor: theme.surface,
             borderBottomColor: theme.border,
             paddingHorizontal: pagePadding,
-            paddingTop: isMobile ? 10 : 14,
+            paddingTop:
+              Platform.OS === 'android'
+                ? (RNStatusBar.currentHeight || 28) + 6
+                : isMobile
+                ? 10
+                : 14,
             paddingBottom: isMobile ? 8 : 10,
           },
         ]}
@@ -769,6 +787,15 @@ function MainWorkspace() {
                 ]}
               >
                 <View style={isDesktop ? styles.arenaLeftCol : styles.fullCol}>
+                  <HardwareSensorHUD
+                    lastShot={state.lastMachineShot}
+                    isHardwareConnected={state.isHardwareConnected}
+                    hardwareDeviceName={state.hardwareDeviceName}
+                    goalsMet={state.goalsMet}
+                    currentSeries={state.currentSeries}
+                    totalSeries={state.totalSeries}
+                    isKidsMode={state.isKidsMode}
+                  />
                   <TargetBoard
                     activeTarget={state.activeTarget}
                     ledCount={state.ledCount}
@@ -784,7 +811,11 @@ function MainWorkspace() {
                     emergencyAlert={state.emergencyAlert}
                     onToggleMode={actions.setIsKidsMode}
                     onTargetPress={actions.tapTargetSimulated}
+<<<<<<< HEAD
                     onStartSession={actions.startSession}
+=======
+                    onStartSession={() => setShowPrepModal(true)}
+>>>>>>> 03e98db8d84f475b5e841e8cac192153a6d66d0c
                     onPauseSession={actions.pauseSession}
                     onResumeSession={actions.resumeSession}
                     onAbortSession={actions.abortSession}
@@ -801,10 +832,14 @@ function MainWorkspace() {
                     drillsList={catalogDrills}
                     catalogSource={catalogSource}
                     onSelectDrill={actions.setSelectedDrill}
+<<<<<<< HEAD
                     onOpenEditor={(drillToEdit) => {
                       setEditorTargetDrill(drillToEdit || null);
                       setActiveTab('EDITOR');
                     }}
+=======
+                    onStartDrill={() => setShowPrepModal(true)}
+>>>>>>> 03e98db8d84f475b5e841e8cac192153a6d66d0c
                   />
                 </View>
               </View>
@@ -923,6 +958,18 @@ function MainWorkspace() {
           })}
         </View>
       )}
+
+      {/* MODAL GLOBAL DE PREPARAÇÃO E SEGURANÇA DE SESSÃO (Celular, Tablet e Web) */}
+      <SessionPrepModal
+        visible={showPrepModal}
+        drill={state.selectedDrill}
+        isKidsMode={state.isKidsMode}
+        onConfirmStart={() => {
+          setShowPrepModal(false);
+          actions.startSession();
+        }}
+        onCancel={() => setShowPrepModal(false)}
+      />
     </SafeAreaView>
   );
 }

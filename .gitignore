@@ -24,6 +24,8 @@ web-build/
 .env.local
 .env.*.local
 *.pem
+.docs/*
+src/.docs/*
 
 # Logs
 npm-debug.log*
@@ -47,6 +49,7 @@ coverage/
 *.sw?
 .DS_Store
 Thumbs.db
+.mysql_data/
 
 # Large archives (uncompressed specs are in docs/spec/)
 docs/*.rar

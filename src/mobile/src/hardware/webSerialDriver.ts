@@ -15,6 +15,7 @@ import {
   ISerialDriver,
   StatusListener,
 } from './serialInterface';
+import { hostGatewayBridge } from './hostGatewayBridge';
 
 export type SerialLogListener = (direction: 'TX' | 'RX' | 'INFO' | 'ERR', message: string) => void;
 
@@ -74,6 +75,12 @@ export class WebSerialDriver implements ISerialDriver {
       // Inicia loop de leitura contínua de linhas
       this.readLoopPromise = this.startReadLoop();
 
+      // Ativa a ponte WebSocket com o Backend para permitir que o celular controle o Arduino
+      hostGatewayBridge.setCommandHandler((cmd) => {
+        this.send(cmd).catch((e) => console.error('[WebSerialDriver] Erro ao enviar comando recebido do celular:', e));
+      });
+      hostGatewayBridge.connect(true, this.deviceName);
+
       // Envia comando PING inicial de handshake para verificar resposta PONG
       setTimeout(() => {
         this.send({ cmd: 'PING' }).catch(() => {});
@@ -115,6 +122,7 @@ export class WebSerialDriver implements ISerialDriver {
     } finally {
       this.isConnected = false;
       this.deviceName = null;
+      hostGatewayBridge.sendHardwareStatus(false, null);
       this.notifyStatus(false);
       this.notifyLog('INFO', 'Porta serial desconectada.');
     }
@@ -178,6 +186,10 @@ export class WebSerialDriver implements ISerialDriver {
               const parsedEvent = parseSerialFrame(trimmedLine);
               if (parsedEvent) {
                 this.notifyEvent(parsedEvent);
+                hostGatewayBridge.broadcastSerialEvent(parsedEvent, trimmedLine);
+                if (parsedEvent.evt === 'READY' && (parsedEvent as any).piezo) {
+                  hostGatewayBridge.sendHardwareStatus(true, this.deviceName, (parsedEvent as any).piezo);
+                }
               } else {
                 this.notifyLog('INFO', `Frame não reconhecido: ${trimmedLine}`);
               }

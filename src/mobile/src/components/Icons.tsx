@@ -248,3 +248,11 @@ export const ShieldAlertIcon: React.FC<IconProps> = (props) => (
   </SvgWrap>
 );
 
+export const CloseIcon: React.FC<IconProps> = (props) => (
+  <SvgWrap {...props} fallback="✕">
+    {el('line', { x1: 18, x2: 6, y1: 6, y2: 18 })}
+    {el('line', { x1: 6, x2: 18, y1: 6, y2: 18 })}
+  </SvgWrap>
+);
+
+

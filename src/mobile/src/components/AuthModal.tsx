@@ -1,6 +1,6 @@
 /**
  * Smart Tennis Arena — Acesso à Smart Tennis Arena (Login & Cadastro JWT)
- * Responsivo para Smartphone, Tablet & Desktop Web (RF01 & RF02)
+ * Responsivo para Smartphone, Tablet & Desktop Web (RF01, RF02, RBAC & Proteção LGPD)
  */
 
 import React, { useState } from 'react';
@@ -17,20 +17,42 @@ import { api } from '../services/api';
 import {
   AgeGroup,
   SkillLevel,
-  UserRole,
 } from '../../../packages/shared/src/contracts/user';
+import { isValidEmail } from '../../../packages/shared/src/security/validation';
 import { useAccessibility } from '../context/AccessibilityContext';
 import { useResponsive } from './useResponsive';
-import { UserCheckIcon, LogOutIcon } from './Icons';
+import {
+  UserCheckIcon,
+  LogOutIcon,
+  LockIcon,
+  CheckCircleIcon,
+  TrashIcon,
+} from './Icons';
 
 interface AuthViewProps {
   onAuthSuccess?: () => void;
 }
 
+const DEMO_PROTECTED_EMAILS = new Set([
+  'admin@smarttennis.com',
+  'treinador@smarttennis.com',
+  'jogador@smarttennis.com',
+  'kids@smarttennis.com',
+]);
+
 export function AuthView({ onAuthSuccess }: AuthViewProps) {
   const { theme, fs } = useAccessibility();
   const { isMobile, isSmallPhone } = useResponsive();
-  const { user, login, register, logout, error, clearError, isLoading } = useAuth();
+  const {
+    user,
+    login,
+    register,
+    logout,
+    deleteAccount,
+    error,
+    clearError,
+    isLoading,
+  } = useAuth();
 
   const [isLoginTab, setIsLoginTab] = useState(true);
 
@@ -38,29 +60,36 @@ export function AuthView({ onAuthSuccess }: AuthViewProps) {
   const [loginEmail, setLoginEmail] = useState('jogador@smarttennis.com');
   const [loginPassword, setLoginPassword] = useState('jogador123');
 
-  // Novo Cadastro (RF01 + RF02)
+  // Novo Cadastro (RF01 + RF02 + LGPD)
   const [regName, setRegName] = useState('');
   const [regEmail, setRegEmail] = useState('');
   const [regPassword, setRegPassword] = useState('');
-  const [regRole, setRegRole] = useState<UserRole>('JOGADOR');
   const [regAgeGroup, setRegAgeGroup] = useState<AgeGroup>('ADULTO');
   const [regSkillLevel, setRegSkillLevel] = useState<SkillLevel>('INICIANTE');
   const [regGoals, setRegGoals] = useState('');
   const [regPreferences, setRegPreferences] = useState('');
   const [regRestrictions, setRegRestrictions] = useState('');
+  const [regGuardianName, setRegGuardianName] = useState('');
+  const [regGuardianConsent, setRegGuardianConsent] = useState(false);
+  const [regTelemetryConsent, setRegTelemetryConsent] = useState(true);
 
+<<<<<<< HEAD
   // Recuperação de Senha (Estado Formal q3: Recuperando_Senha - Entrega 1 Teoria da Computação)
   const [isRecoveringPassword, setIsRecoveringPassword] = useState(false);
   const [resetEmail, setResetEmail] = useState('jogador@smarttennis.com');
   const [resetNewPassword, setResetNewPassword] = useState('');
   const [isResetting, setIsResetting] = useState(false);
 
+=======
+  const [confirmDeleteStep, setConfirmDeleteStep] = useState(false);
+>>>>>>> 03e98db8d84f475b5e841e8cac192153a6d66d0c
   const [localMsg, setLocalMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
   const fillQuickDemo = (kind: 'jogador' | 'kids' | 'treinador' | 'admin') => {
     clearError();
     setLocalMsg(null);
+    setSuccessMsg(null);
     setIsLoginTab(true);
     if (kind === 'jogador') {
       setLoginEmail('jogador@smarttennis.com');
@@ -77,11 +106,22 @@ export function AuthView({ onAuthSuccess }: AuthViewProps) {
     }
   };
 
+  const handleSelectAgeGroup = (ag: AgeGroup) => {
+    setRegAgeGroup(ag);
+    // Coleta mínima por padrão para crianças e adolescentes (Seção 3 - LGPD)
+    if (ag === 'KIDS') {
+      setRegTelemetryConsent(false);
+    } else {
+      setRegTelemetryConsent(true);
+    }
+  };
+
   const handleLogin = async () => {
     clearError();
     setLocalMsg(null);
-    if (!loginEmail.trim() || !loginPassword) {
-      setLocalMsg('Informe o e-mail institucional e a senha de acesso.');
+    setSuccessMsg(null);
+    if (!isValidEmail(loginEmail) || !loginPassword) {
+      setLocalMsg('Informe um e-mail válido e a senha de acesso.');
       return;
     }
     try {
@@ -95,25 +135,54 @@ export function AuthView({ onAuthSuccess }: AuthViewProps) {
   const handleRegister = async () => {
     clearError();
     setLocalMsg(null);
-    if (!regName.trim() || !regEmail.trim() || !regPassword) {
-      setLocalMsg('Preencha nome completo, e-mail e senha.');
+    setSuccessMsg(null);
+
+    if (!regName.trim() || regName.trim().length < 2) {
+      setLocalMsg('Informe o nome completo (mínimo 2 caracteres).');
+      return;
+    }
+    if (!isValidEmail(regEmail)) {
+      setLocalMsg('Informe um endereço de e-mail válido.');
       return;
     }
     if (regPassword.length < 6) {
       setLocalMsg('A senha deve ter no mínimo 6 caracteres.');
       return;
     }
+    if (regAgeGroup === 'KIDS') {
+      if (!regGuardianConsent) {
+        setLocalMsg(
+          'Cadastro infantil (Modo Kids) exige autorização explícita do responsável legal (LGPD).'
+        );
+        return;
+      }
+      if (regGuardianName.trim().length < 3) {
+        setLocalMsg(
+          'Informe o nome do responsável legal para validar o perfil infantil (LGPD).'
+        );
+        return;
+      }
+    }
+
     try {
       await register({
         name: regName.trim(),
-        email: regEmail.trim(),
+        email: regEmail.trim().toLowerCase(),
         password: regPassword,
-        role: regRole,
         ageGroup: regAgeGroup,
         skillLevel: regSkillLevel,
+<<<<<<< HEAD
         trainingGoals: regGoals || undefined,
         preferences: regPreferences || undefined,
         physicalRestrictions: regRestrictions || undefined,
+=======
+        trainingGoals: regGoals.trim() || null,
+        preferences: regPreferences.trim() || null,
+        physicalRestrictions: regRestrictions.trim() || null,
+        guardianName: regAgeGroup === 'KIDS' ? regGuardianName.trim() : null,
+        guardianConsent: regAgeGroup === 'KIDS' ? regGuardianConsent : false,
+        telemetryConsent: regTelemetryConsent,
+>>>>>>> 03e98db8d84f475b5e841e8cac192153a6d66d0c
       });
       onAuthSuccess?.();
     } catch {
@@ -121,6 +190,7 @@ export function AuthView({ onAuthSuccess }: AuthViewProps) {
     }
   };
 
+<<<<<<< HEAD
   const handleResetPassword = async () => {
     clearError();
     setLocalMsg(null);
@@ -148,6 +218,29 @@ export function AuthView({ onAuthSuccess }: AuthViewProps) {
       setLocalMsg(err.message || 'Falha ao redefinir senha');
     } finally {
       setIsResetting(false);
+=======
+  const handleSelfDelete = async () => {
+    if (!user) return;
+    if (DEMO_PROTECTED_EMAILS.has(user.email.toLowerCase())) {
+      setLocalMsg(
+        'Contas institucionais de demonstração são protegidas. Cadastre uma conta própria para testar a exclusão definitiva LGPD.'
+      );
+      setConfirmDeleteStep(false);
+      return;
+    }
+
+    if (!confirmDeleteStep) {
+      setConfirmDeleteStep(true);
+      return;
+    }
+
+    try {
+      await deleteAccount();
+      setConfirmDeleteStep(false);
+      setSuccessMsg('Seus dados pessoais foram eliminados com sucesso (LGPD).');
+    } catch {
+      setConfirmDeleteStep(false);
+>>>>>>> 03e98db8d84f475b5e841e8cac192153a6d66d0c
     }
   };
 
@@ -200,7 +293,7 @@ export function AuthView({ onAuthSuccess }: AuthViewProps) {
             { color: theme.textSecondary, fontSize: fs(12) },
           ]}
         >
-          Autenticação protegida via JWT e hash bcrypt integrada ao backend Node/TypeScript.
+          Autenticação protegida via JWT, menor privilégio RBAC e conformidade LGPD.
         </Text>
 
         {/* Segmented Control: Entrar (Login) | Novo Cadastro */}
@@ -224,6 +317,7 @@ export function AuthView({ onAuthSuccess }: AuthViewProps) {
               setIsLoginTab(true);
               clearError();
               setLocalMsg(null);
+              setSuccessMsg(null);
             }}
           >
             <Text
@@ -253,6 +347,7 @@ export function AuthView({ onAuthSuccess }: AuthViewProps) {
               setIsLoginTab(false);
               clearError();
               setLocalMsg(null);
+              setSuccessMsg(null);
             }}
           >
             <Text
@@ -303,7 +398,11 @@ export function AuthView({ onAuthSuccess }: AuthViewProps) {
                 fontSize: fs(12),
               }}
             >
+<<<<<<< HEAD
               ✓ {successMsg}
+=======
+              {successMsg}
+>>>>>>> 03e98db8d84f475b5e841e8cac192153a6d66d0c
             </Text>
           </View>
         )}
@@ -492,8 +591,28 @@ export function AuthView({ onAuthSuccess }: AuthViewProps) {
           )
         ) : (
           <View style={styles.form}>
+            {/* Selo informativo de Menor Privilégio RBAC (RF01) */}
+            <View
+              style={[
+                styles.rbacInfoBox,
+                { backgroundColor: theme.surfaceMuted, borderColor: theme.borderNeutral },
+              ]}
+            >
+              <LockIcon size={14} color={theme.primaryDark} />
+              <Text
+                style={{
+                  color: theme.textSecondary,
+                  fontSize: fs(11),
+                  flex: 1,
+                  lineHeight: 16,
+                }}
+              >
+                Auto-cadastro cria perfil <Text style={{ fontWeight: '800', color: theme.text }}>Atleta (JOGADOR)</Text>. Contas de Treinador e Admin são atribuídas exclusivamente por Administradores.
+              </Text>
+            </View>
+
             <Text style={[styles.label, { color: theme.text, fontSize: fs(12) }]}>
-              Nome Completo
+              {regAgeGroup === 'KIDS' ? 'Nome ou Apelido do Jovem Praticante' : 'Nome Completo'}
             </Text>
             <TextInput
               style={[
@@ -507,12 +626,12 @@ export function AuthView({ onAuthSuccess }: AuthViewProps) {
               ]}
               value={regName}
               onChangeText={setRegName}
-              placeholder="Ex: Beatriz Haddad"
+              placeholder={regAgeGroup === 'KIDS' ? 'Ex: Theo' : 'Ex: Beatriz Haddad'}
               placeholderTextColor={theme.textMuted}
             />
 
             <Text style={[styles.label, { color: theme.text, fontSize: fs(12) }]}>
-              E-mail Institucional
+              {regAgeGroup === 'KIDS' ? 'E-mail do Responsável Legal' : 'E-mail Institucional'}
             </Text>
             <TextInput
               style={[
@@ -533,7 +652,7 @@ export function AuthView({ onAuthSuccess }: AuthViewProps) {
             />
 
             <Text style={[styles.label, { color: theme.text, fontSize: fs(12) }]}>
-              Senha de Acesso (mín. 6 dígitos)
+              Senha de Acesso (mín. 6 caracteres)
             </Text>
             <TextInput
               style={[
@@ -553,37 +672,6 @@ export function AuthView({ onAuthSuccess }: AuthViewProps) {
             />
 
             <Text style={[styles.label, { color: theme.text, fontSize: fs(12) }]}>
-              Perfil de Acesso (RBAC - RF01)
-            </Text>
-            <View style={styles.choiceRow}>
-              {(['JOGADOR', 'TREINADOR', 'ADMIN'] as UserRole[]).map((r) => (
-                <TouchableOpacity
-                  key={r}
-                  style={[
-                    styles.choicePill,
-                    {
-                      backgroundColor:
-                        regRole === r ? theme.surfaceMint : theme.surfaceMuted,
-                      borderColor:
-                        regRole === r ? theme.primary : theme.borderNeutral,
-                    },
-                  ]}
-                  onPress={() => setRegRole(r)}
-                >
-                  <Text
-                    style={{
-                      color: regRole === r ? theme.primaryDark : theme.textSecondary,
-                      fontWeight: '700',
-                      fontSize: fs(11),
-                    }}
-                  >
-                    {r === 'JOGADOR' ? 'Atleta' : r === 'TREINADOR' ? 'Coach' : 'Admin'}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-
-            <Text style={[styles.label, { color: theme.text, fontSize: fs(12) }]}>
               Modo Esportivo & Nível (RF02)
             </Text>
             <View style={styles.choiceRow}>
@@ -599,7 +687,7 @@ export function AuthView({ onAuthSuccess }: AuthViewProps) {
                         regAgeGroup === ag ? theme.primary : theme.borderNeutral,
                     },
                   ]}
-                  onPress={() => setRegAgeGroup(ag)}
+                  onPress={() => handleSelectAgeGroup(ag)}
                 >
                   <Text
                     style={{
@@ -609,7 +697,7 @@ export function AuthView({ onAuthSuccess }: AuthViewProps) {
                       fontSize: fs(11),
                     }}
                   >
-                    {ag === 'KIDS' ? '🧒 Modo Kids' : '🎾 Modo Pro'}
+                    {ag === 'KIDS' ? '🧒 Modo Kids (Menor)' : '🎾 Modo Pro (Adulto)'}
                   </Text>
                 </TouchableOpacity>
               ))}
@@ -652,8 +740,94 @@ export function AuthView({ onAuthSuccess }: AuthViewProps) {
               )}
             </View>
 
+            {/* Proteção Reforçada de Crianças e Adolescentes (Seção 3 e Seção 5 - LGPD Art. 14) */}
+            {regAgeGroup === 'KIDS' && (
+              <View
+                style={[
+                  styles.lgpdKidsBox,
+                  {
+                    backgroundColor: theme.surfaceMint,
+                    borderColor: theme.primaryBorder,
+                  },
+                ]}
+              >
+                <Text
+                  style={{
+                    color: theme.primaryDark,
+                    fontWeight: '800',
+                    fontSize: fs(12),
+                    marginBottom: 6,
+                  }}
+                >
+                  🛡 Proteção Reforçada de Menores (LGPD)
+                </Text>
+                <Text
+                  style={{
+                    color: theme.textSecondary,
+                    fontSize: fs(11),
+                    lineHeight: 16,
+                    marginBottom: 8,
+                  }}
+                >
+                  Aplicamos coleta mínima de dados e visibilidade restrita. O cadastro requer identificação e autorização do responsável legal.
+                </Text>
+
+                <TextInput
+                  style={[
+                    styles.input,
+                    {
+                      backgroundColor: theme.surface,
+                      borderColor: theme.primaryBorder,
+                      color: theme.text,
+                      fontSize: fs(13),
+                    },
+                  ]}
+                  value={regGuardianName}
+                  onChangeText={setRegGuardianName}
+                  placeholder="Nome completo do pai, mãe ou responsável legal"
+                  placeholderTextColor={theme.textMuted}
+                />
+
+                <TouchableOpacity
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: regGuardianConsent }}
+                  style={styles.consentCheckRow}
+                  onPress={() => setRegGuardianConsent((v) => !v)}
+                >
+                  <View
+                    style={[
+                      styles.checkboxSquare,
+                      {
+                        backgroundColor: regGuardianConsent
+                          ? theme.primary
+                          : theme.surface,
+                        borderColor: regGuardianConsent
+                          ? theme.primary
+                          : theme.borderNeutral,
+                      },
+                    ]}
+                  >
+                    {regGuardianConsent && (
+                      <CheckCircleIcon size={13} color="#FFFFFF" />
+                    )}
+                  </View>
+                  <Text
+                    style={{
+                      color: theme.text,
+                      fontSize: fs(11),
+                      fontWeight: '600',
+                      flex: 1,
+                      lineHeight: 16,
+                    }}
+                  >
+                    Declaro ser responsável legal e autorizo o uso estritamente pedagógico e esportivo na Smart Tennis Arena.
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
             <Text style={[styles.label, { color: theme.text, fontSize: fs(12) }]}>
-              Objetivos de Treino & Observações (Opcional)
+              Objetivos, Preferências & Restrições (RF02 — Opcional)
             </Text>
             <TextInput
               style={[
@@ -667,7 +841,24 @@ export function AuthView({ onAuthSuccess }: AuthViewProps) {
               ]}
               value={regGoals}
               onChangeText={setRegGoals}
-              placeholder="Ex: Melhorar reflexo de fundo de quadra"
+              placeholder="Objetivo (ex: Melhorar reflexo de fundo de quadra)"
+              placeholderTextColor={theme.textMuted}
+            />
+
+            <TextInput
+              style={[
+                styles.input,
+                {
+                  backgroundColor: theme.surfaceMuted,
+                  borderColor: theme.borderNeutral,
+                  color: theme.text,
+                  fontSize: fs(13),
+                  marginTop: 6,
+                },
+              ]}
+              value={regPreferences}
+              onChangeText={setRegPreferences}
+              placeholder="Preferências (ex: Treinos curtos de agilidade, feedback sonoro)"
               placeholderTextColor={theme.textMuted}
             />
 
@@ -701,9 +892,45 @@ export function AuthView({ onAuthSuccess }: AuthViewProps) {
               ]}
               value={regRestrictions}
               onChangeText={setRegRestrictions}
-              placeholder="Restrições físicas / notas LGPD (opcional)"
+              placeholder="Restrições físicas / observações de mobilidade (opcional)"
               placeholderTextColor={theme.textMuted}
             />
+
+            {/* Consentimento de Telemetria (Finalidade Explícita LGPD + RF19) */}
+            <TouchableOpacity
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: regTelemetryConsent }}
+              style={[styles.consentCheckRow, { marginTop: 12 }]}
+              onPress={() => setRegTelemetryConsent((v) => !v)}
+            >
+              <View
+                style={[
+                  styles.checkboxSquare,
+                  {
+                    backgroundColor: regTelemetryConsent
+                      ? theme.primary
+                      : theme.surfaceMuted,
+                    borderColor: regTelemetryConsent
+                      ? theme.primary
+                      : theme.borderNeutral,
+                  },
+                ]}
+              >
+                {regTelemetryConsent && (
+                  <CheckCircleIcon size={13} color="#FFFFFF" />
+                )}
+              </View>
+              <Text
+                style={{
+                  color: theme.textSecondary,
+                  fontSize: fs(11),
+                  flex: 1,
+                  lineHeight: 16,
+                }}
+              >
+                Autorizo o envio de telemetria detalhada dos sensores para histórico de evolução (RF19 / LGPD).
+              </Text>
+            </TouchableOpacity>
 
             <TouchableOpacity
               accessibilityRole="button"
@@ -723,7 +950,7 @@ export function AuthView({ onAuthSuccess }: AuthViewProps) {
           </View>
         )}
 
-        {/* Rodapé da Sessão Atual */}
+        {/* Rodapé da Sessão Atual + Direitos do Titular LGPD */}
         <View style={[styles.footerDivider, { backgroundColor: theme.borderNeutral }]} />
         <View style={styles.footerRow}>
           <Text style={{ color: theme.textSecondary, fontSize: fs(12) }}>
@@ -734,22 +961,48 @@ export function AuthView({ onAuthSuccess }: AuthViewProps) {
           </Text>
 
           {user && (
-            <TouchableOpacity
-              accessibilityRole="button"
-              style={styles.logoutBtn}
-              onPress={logout}
-            >
-              <LogOutIcon size={15} color={theme.danger} />
-              <Text
-                style={{
-                  color: theme.danger,
-                  fontWeight: '700',
-                  fontSize: fs(12),
+            <View style={styles.footerActionsGroup}>
+              {!DEMO_PROTECTED_EMAILS.has(user.email.toLowerCase()) && (
+                <TouchableOpacity
+                  accessibilityRole="button"
+                  style={styles.logoutBtn}
+                  onPress={handleSelfDelete}
+                >
+                  <TrashIcon size={14} color={theme.warning} />
+                  <Text
+                    style={{
+                      color: theme.warning,
+                      fontWeight: '700',
+                      fontSize: fs(11),
+                    }}
+                  >
+                    {confirmDeleteStep
+                      ? 'Confirmar Exclusão LGPD?'
+                      : 'Excluir Conta (LGPD)'}
+                  </Text>
+                </TouchableOpacity>
+              )}
+
+              <TouchableOpacity
+                accessibilityRole="button"
+                style={styles.logoutBtn}
+                onPress={() => {
+                  setConfirmDeleteStep(false);
+                  logout();
                 }}
               >
-                Encerrar Sessão
-              </Text>
-            </TouchableOpacity>
+                <LogOutIcon size={15} color={theme.danger} />
+                <Text
+                  style={{
+                    color: theme.danger,
+                    fontWeight: '700',
+                    fontSize: fs(12),
+                  }}
+                >
+                  Encerrar Sessão
+                </Text>
+              </TouchableOpacity>
+            </View>
           )}
         </View>
       </View>
@@ -764,7 +1017,7 @@ const styles = StyleSheet.create({
   },
   card: {
     width: '100%',
-    maxWidth: 480,
+    maxWidth: 500,
     borderRadius: 24,
     borderWidth: 1,
     alignItems: 'center',
@@ -826,6 +1079,35 @@ const styles = StyleSheet.create({
   },
   form: {
     width: '100%',
+  },
+  rbacInfoBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    padding: 10,
+    borderRadius: 11,
+    borderWidth: 1,
+    marginBottom: 6,
+  },
+  lgpdKidsBox: {
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginTop: 10,
+  },
+  consentCheckRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 9,
+    marginTop: 10,
+  },
+  checkboxSquare: {
+    width: 20,
+    height: 20,
+    borderRadius: 6,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   demoRow: {
     flexDirection: 'row',
@@ -895,6 +1177,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexWrap: 'wrap',
     gap: 10,
+  },
+  footerActionsGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 14,
   },
   logoutBtn: {
     flexDirection: 'row',

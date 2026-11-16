@@ -1,10 +1,26 @@
 /**
+<<<<<<< HEAD
  * Smart Tennis Arena — Catálogo de Treinos com Filtros (RF03),
  * Detalhes e Preparação Pré-Sessão (RF04) e Metadados de Marketplace (RF20)
  */
 
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+=======
+ * Smart Tennis Arena — Card do Catálogo de Treinos Dinâmico com Filtros
+ * Alinhado com: RF03 (Consulta e Filtros por Público, Objetivo, Duração, Dificuldade e Sensores) e RF18
+ */
+
+import React, { useState, useEffect, useMemo } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  TextInput,
+  ActivityIndicator,
+} from 'react-native';
+>>>>>>> 03e98db8d84f475b5e841e8cac192153a6d66d0c
 import {
   DrillDefinition,
   DrillDifficulty,
@@ -13,17 +29,26 @@ import {
   DEFAULT_DRILLS,
   TARGET_TACTICAL_NAMES,
 } from '../../../packages/shared/src/contracts/drills';
+import { api } from '../services/api';
 import { useAccessibility } from '../context/AccessibilityContext';
 import { useResponsive } from './useResponsive';
+<<<<<<< HEAD
 import { SlidersIcon, ShieldAlertIcon, CheckCircleIcon } from './Icons';
+=======
+import { SlidersIcon, RefreshIcon, PlayIcon, CloseIcon } from './Icons';
+>>>>>>> 03e98db8d84f475b5e841e8cac192153a6d66d0c
 
 interface DrillCatalogCardProps {
   selectedDrill: DrillDefinition;
   isKidsMode: boolean;
   onSelectDrill: (drill: DrillDefinition) => void;
+<<<<<<< HEAD
   drillsList?: DrillDefinition[];
   catalogSource?: 'API' | 'CACHE_OFFLINE';
   onOpenEditor?: (drillToEdit?: DrillDefinition) => void;
+=======
+  onStartDrill?: (drill: DrillDefinition) => void;
+>>>>>>> 03e98db8d84f475b5e841e8cac192153a6d66d0c
 }
 
 function getDifficultyLabel(diff: DrillDifficulty, isKids: boolean): string {
@@ -48,13 +73,18 @@ export const DrillCatalogCard: React.FC<DrillCatalogCardProps> = ({
   selectedDrill,
   isKidsMode,
   onSelectDrill,
+<<<<<<< HEAD
   drillsList = DEFAULT_DRILLS,
   catalogSource = 'API',
   onOpenEditor,
+=======
+  onStartDrill,
+>>>>>>> 03e98db8d84f475b5e841e8cac192153a6d66d0c
 }) => {
   const { theme, fs } = useAccessibility();
   const { isMobile, isTablet, isDesktop, cardPadding } = useResponsive();
 
+<<<<<<< HEAD
   const [audienceFilter, setAudienceFilter] = useState<'ALL' | 'KIDS' | 'PRO'>('ALL');
   const [categoryFilter, setCategoryFilter] = useState<'ALL' | DrillCategory>('ALL');
   const [showPreparation, setShowPreparation] = useState<boolean>(true);
@@ -80,6 +110,63 @@ export const DrillCatalogCard: React.FC<DrillCatalogCardProps> = ({
   const reqSensors =
     prep?.requiredSensors ||
     Array.from(new Set(selectedDrill.steps.map((s) => s.targetId))).sort();
+=======
+  const [rawDrills, setRawDrills] = useState<DrillDefinition[]>(DEFAULT_DRILLS);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [searchTerm, setSearchTerm] = useState<string>('');
+  const [selectedCategory, setSelectedCategory] = useState<string>('TODAS');
+  const [selectedDifficulty, setSelectedDifficulty] = useState<number | null>(null);
+
+  const fetchCatalog = async () => {
+    setIsLoading(true);
+    try {
+      const items = await api.listDrills({});
+      if (Array.isArray(items) && items.length > 0) {
+        setRawDrills(items);
+      } else {
+        setRawDrills(DEFAULT_DRILLS);
+      }
+    } catch {
+      // Fallback gracioso offline mantendo filtros funcionais localmente
+      setRawDrills(DEFAULT_DRILLS);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchCatalog();
+  }, []);
+
+  // Filtragem local instantânea e determinística (funciona online e offline)
+  const filteredDrills = useMemo(() => {
+    return rawDrills.filter((drill) => {
+      if (selectedCategory !== 'TODAS' && drill.category !== selectedCategory) {
+        return false;
+      }
+      if (selectedDifficulty !== null && drill.difficulty !== selectedDifficulty) {
+        return false;
+      }
+      if (searchTerm.trim()) {
+        const q = searchTerm.trim().toLowerCase();
+        const haystack = `${drill.title} ${drill.description} ${drill.objective || ''} ${drill.authorName || ''}`.toLowerCase();
+        if (!haystack.includes(q)) {
+          return false;
+        }
+      }
+      return true;
+    });
+  }, [rawDrills, selectedCategory, selectedDifficulty, searchTerm]);
+
+  const hasActiveFilters =
+    selectedCategory !== 'TODAS' || selectedDifficulty !== null || searchTerm.trim().length > 0;
+
+  const clearFilters = () => {
+    setSelectedCategory('TODAS');
+    setSelectedDifficulty(null);
+    setSearchTerm('');
+  };
+>>>>>>> 03e98db8d84f475b5e841e8cac192153a6d66d0c
 
   return (
     <View
@@ -92,13 +179,19 @@ export const DrillCatalogCard: React.FC<DrillCatalogCardProps> = ({
         },
       ]}
     >
+<<<<<<< HEAD
       {/* Topo do Catálogo + Origem API/Offline (RF18, RF21) */}
       <View style={styles.topBar}>
         <View style={styles.headerRow}>
+=======
+      <View style={styles.headerRow}>
+        <View style={styles.titleWrap}>
+>>>>>>> 03e98db8d84f475b5e841e8cac192153a6d66d0c
           <SlidersIcon size={18} color={theme.primary} />
           <Text
             style={[
               styles.title,
+<<<<<<< HEAD
               { color: theme.text, fontSize: isMobile ? fs(16) : fs(17) },
             ]}
           >
@@ -127,6 +220,27 @@ export const DrillCatalogCard: React.FC<DrillCatalogCardProps> = ({
             {catalogSource === 'API' ? '● API REST SYNC' : '● CACHE OFFLINE (RF21)'}
           </Text>
         </View>
+=======
+              { color: theme.text, fontSize: isMobile ? fs(15) : fs(17) },
+            ]}
+          >
+            Protocolos de Treino (RF03 / RF18)
+          </Text>
+        </View>
+
+        <TouchableOpacity
+          activeOpacity={0.7}
+          accessibilityLabel="Atualizar catálogo de treinos"
+          style={[styles.refreshBtn, { borderColor: theme.borderNeutral }]}
+          onPress={fetchCatalog}
+        >
+          {isLoading ? (
+            <ActivityIndicator size="small" color={theme.primary} />
+          ) : (
+            <RefreshIcon size={14} color={theme.primaryDark} />
+          )}
+        </TouchableOpacity>
+>>>>>>> 03e98db8d84f475b5e841e8cac192153a6d66d0c
       </View>
 
       <Text
@@ -135,6 +249,7 @@ export const DrillCatalogCard: React.FC<DrillCatalogCardProps> = ({
           { color: theme.textSecondary, fontSize: fs(12) },
         ]}
       >
+<<<<<<< HEAD
         Filtre por público, objetivo, dificuldade e consulte instruções antes da partida.
       </Text>
 
@@ -247,10 +362,81 @@ export const DrillCatalogCard: React.FC<DrillCatalogCardProps> = ({
                   padding: isMobile ? 12 : 14,
                 },
               ]}
+=======
+        Toque em um treino para selecioná-lo ou filtrá-lo por objetivo e nível técnico.
+      </Text>
+
+      {/* Barra de Filtros RF03 */}
+      <View style={styles.filterBar}>
+        <View
+          style={[
+            styles.searchInputWrap,
+            {
+              backgroundColor: theme.surfaceMuted,
+              borderColor: theme.borderNeutral,
+            },
+          ]}
+        >
+          <TextInput
+            style={[
+              styles.searchInput,
+              {
+                color: theme.text,
+                fontSize: fs(12),
+              },
+            ]}
+            placeholder="Buscar por objetivo ou nome..."
+            placeholderTextColor={theme.textMuted}
+            value={searchTerm}
+            onChangeText={setSearchTerm}
+          />
+          {searchTerm.length > 0 && (
+            <TouchableOpacity
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              onPress={() => setSearchTerm('')}
+>>>>>>> 03e98db8d84f475b5e841e8cac192153a6d66d0c
             >
-              <View style={styles.drillTopRow}>
+              <CloseIcon size={14} color={theme.textMuted} />
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {/* Filtro por Categoria */}
+        <View style={styles.pillsRow}>
+          {[
+            { key: 'TODAS', label: 'Todas' },
+            { key: 'PRECISION', label: 'Precisão' },
+            { key: 'REACTION', label: 'Reação' },
+            { key: 'ENDURANCE', label: 'Resistência' },
+            { key: 'KIDS_FUN', label: '⭐ Kids' },
+          ].map((cat) => {
+            const active = selectedCategory === cat.key;
+            return (
+              <TouchableOpacity
+                key={cat.key}
+                activeOpacity={0.75}
+                style={[
+                  styles.filterPill,
+                  {
+                    backgroundColor: active ? theme.primary : theme.surfaceMuted,
+                    borderColor: active ? theme.primaryDark : theme.borderNeutral,
+                  },
+                ]}
+                onPress={() => {
+                  const nextCat = active && cat.key !== 'TODAS' ? 'TODAS' : cat.key;
+                  setSelectedCategory(nextCat);
+                  // Seleciona automaticamente o primeiro treino correspondente ao filtro
+                  const matching = rawDrills.filter(
+                    (d) => nextCat === 'TODAS' || d.category === nextCat
+                  );
+                  if (matching.length > 0 && !matching.some((d) => d.id === selectedDrill.id)) {
+                    onSelectDrill(matching[0]);
+                  }
+                }}
+              >
                 <Text
                   style={[
+<<<<<<< HEAD
                     styles.drillTitle,
                     { color: theme.text, fontSize: fs(13) },
                   ]}
@@ -260,26 +446,24 @@ export const DrillCatalogCard: React.FC<DrillCatalogCardProps> = ({
                 <View
                   style={[
                     styles.diffBadge,
+=======
+                    styles.filterPillText,
+>>>>>>> 03e98db8d84f475b5e841e8cac192153a6d66d0c
                     {
-                      backgroundColor: theme.surface,
-                      borderColor: isSelected ? theme.primaryBorder : theme.borderNeutral,
+                      color: active ? '#FFF' : theme.textSecondary,
+                      fontSize: fs(11),
                     },
                   ]}
                 >
-                  <Text
-                    style={[
-                      styles.diffBadgeText,
-                      {
-                        color: isSelected ? theme.primaryDark : theme.textSecondary,
-                        fontSize: fs(10),
-                      },
-                    ]}
-                  >
-                    {getDifficultyLabel(drill.difficulty, drill.isKidsAdapted)}
-                  </Text>
-                </View>
-              </View>
+                  {cat.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      </View>
 
+<<<<<<< HEAD
               <Text
                 style={[
                   styles.drillDesc,
@@ -287,12 +471,58 @@ export const DrillCatalogCard: React.FC<DrillCatalogCardProps> = ({
                 ]}
               >
                 {drill.description}
+=======
+      {/* Lista de Treinos */}
+      {filteredDrills.length === 0 ? (
+        <View
+          style={[
+            styles.emptyBox,
+            { backgroundColor: theme.surfaceMuted, borderColor: theme.borderNeutral },
+          ]}
+        >
+          <Text style={[styles.emptyText, { color: theme.textSecondary, fontSize: fs(12.5) }]}>
+            Nenhum treino encontrado para o filtro selecionado.
+          </Text>
+          {hasActiveFilters && (
+            <TouchableOpacity
+              activeOpacity={0.8}
+              style={[styles.clearFilterBtn, { backgroundColor: theme.primary }]}
+              onPress={clearFilters}
+            >
+              <Text style={{ color: '#FFF', fontWeight: '700', fontSize: fs(12) }}>
+                Mostrar Todos os Treinos
+>>>>>>> 03e98db8d84f475b5e841e8cac192153a6d66d0c
               </Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      ) : (
+        <View
+          style={[
+            styles.list,
+            isTablet && !isDesktop && styles.listTabletGrid,
+          ]}
+        >
+          {filteredDrills.map((drill) => {
+            const isSelected = selectedDrill.id === drill.id;
+            const maxWindow = Math.max(...drill.steps.map((s) => s.durationMs));
+            const effectiveWindow = isKidsMode
+              ? Math.round(maxWindow * 1.5)
+              : maxWindow;
+            const basePts = drill.scoringRules?.basePoints ?? 100;
 
-              <Text
+            return (
+              <TouchableOpacity
+                key={drill.id}
+                accessibilityRole="button"
+                accessibilityState={{ selected: isSelected }}
+                activeOpacity={0.82}
+                onPress={() => onSelectDrill(drill)}
                 style={[
-                  styles.drillMeta,
+                  styles.drillCard,
+                  isTablet && !isDesktop && styles.drillCardTablet,
                   {
+<<<<<<< HEAD
                     color: isSelected ? theme.primaryDark : theme.textMuted,
                     fontSize: fs(10),
                   },
@@ -477,6 +707,104 @@ export const DrillCatalogCard: React.FC<DrillCatalogCardProps> = ({
               + Criar Novo Treino
             </Text>
           </TouchableOpacity>
+=======
+                    backgroundColor: isSelected ? theme.surfaceMint : theme.surface,
+                    borderColor: isSelected ? theme.primary : theme.borderNeutral,
+                    borderWidth: isSelected ? 2 : 1,
+                    padding: isMobile ? 12 : 15,
+                  },
+                ]}
+              >
+                <View style={styles.drillTopRow}>
+                  <Text
+                    style={[
+                      styles.drillTitle,
+                      { color: theme.text, fontSize: fs(13.5) },
+                    ]}
+                  >
+                    {drill.title}
+                  </Text>
+                  <View
+                    style={[
+                      styles.diffBadge,
+                      {
+                        backgroundColor: theme.surface,
+                        borderColor: isSelected ? theme.primaryBorder : theme.borderNeutral,
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.diffBadgeText,
+                        {
+                          color: isSelected ? theme.primaryDark : theme.textSecondary,
+                          fontSize: fs(10),
+                        },
+                      ]}
+                    >
+                      {getDifficultyLabel(drill.difficulty, drill.isKidsAdapted)}
+                    </Text>
+                  </View>
+                </View>
+
+                <Text
+                  style={[
+                    styles.drillDesc,
+                    { color: theme.textSecondary, fontSize: fs(11.5) },
+                  ]}
+                >
+                  {drill.description}
+                </Text>
+
+                {drill.objective && (
+                  <Text
+                    numberOfLines={2}
+                    style={[
+                      styles.drillObjective,
+                      { color: theme.primaryDark, fontSize: fs(11) },
+                    ]}
+                  >
+                    🎯 Objetivo: {drill.objective}
+                  </Text>
+                )}
+
+                <View style={styles.metaRow}>
+                  <Text
+                    style={[
+                      styles.drillMeta,
+                      {
+                        color: isSelected ? theme.primaryDark : theme.textMuted,
+                        fontSize: fs(11),
+                      },
+                    ]}
+                  >
+                    {drill.steps.length} disparos • Janela: {effectiveWindow}ms • Base: {basePts} pts
+                  </Text>
+
+                  {isSelected && onStartDrill ? (
+                    <TouchableOpacity
+                      activeOpacity={0.85}
+                      style={[styles.quickStartPill, { backgroundColor: theme.primary }]}
+                      onPress={() => {
+                        onSelectDrill(drill);
+                        onStartDrill(drill);
+                      }}
+                    >
+                      <PlayIcon size={11} color="#FFF" />
+                      <Text style={{ color: '#FFF', fontWeight: '800', fontSize: fs(11) }}>
+                        Iniciar
+                      </Text>
+                    </TouchableOpacity>
+                  ) : drill.version ? (
+                    <Text style={[styles.versionTag, { color: theme.textMuted, fontSize: fs(10) }]}>
+                      v{drill.version}
+                    </Text>
+                  ) : null}
+                </View>
+              </TouchableOpacity>
+            );
+          })}
+>>>>>>> 03e98db8d84f475b5e841e8cac192153a6d66d0c
         </View>
       )}
     </View>
@@ -485,14 +813,8 @@ export const DrillCatalogCard: React.FC<DrillCatalogCardProps> = ({
 
 const styles = StyleSheet.create({
   container: {
-    borderRadius: 20,
-    borderWidth: 1,
-    width: '100%',
-    shadowColor: '#059669',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.04,
-    shadowRadius: 12,
-    elevation: 1,
+    borderRadius: 14,
+    borderWidth: 1.5,
   },
   topBar: {
     flexDirection: 'row',
@@ -504,7 +826,15 @@ const styles = StyleSheet.create({
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     gap: 8,
+    marginBottom: 4,
+  },
+  titleWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flex: 1,
   },
   sourceBadge: {
     paddingHorizontal: 8,
@@ -513,11 +843,16 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   title: {
-    fontWeight: '800',
-    letterSpacing: -0.3,
+    fontWeight: '700',
     flexShrink: 1,
   },
+  refreshBtn: {
+    padding: 7,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
   subtitle: {
+<<<<<<< HEAD
     marginTop: 4,
     marginBottom: 10,
     lineHeight: 17,
@@ -527,15 +862,62 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   filterRow: {
+=======
+    lineHeight: 17,
+    marginBottom: 10,
+  },
+  filterBar: {
+    marginBottom: 12,
+    gap: 8,
+  },
+  searchInputWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  searchInput: {
+    flex: 1,
+    paddingVertical: 7,
+  },
+  pillsRow: {
+>>>>>>> 03e98db8d84f475b5e841e8cac192153a6d66d0c
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 6,
   },
   filterPill: {
+<<<<<<< HEAD
     paddingHorizontal: 9,
     paddingVertical: 5,
     borderRadius: 999,
     borderWidth: 1,
+=======
+    paddingHorizontal: 11,
+    paddingVertical: 6,
+    borderRadius: 99,
+    borderWidth: 1,
+  },
+  filterPillText: {
+    fontWeight: '700',
+  },
+  emptyBox: {
+    padding: 16,
+    borderRadius: 10,
+    borderWidth: 1,
+    alignItems: 'center',
+    gap: 10,
+  },
+  emptyText: {
+    textAlign: 'center',
+    fontWeight: '500',
+  },
+  clearFilterBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 8,
+>>>>>>> 03e98db8d84f475b5e841e8cac192153a6d66d0c
   },
   list: {
     gap: 9,
@@ -543,43 +925,87 @@ const styles = StyleSheet.create({
   listTabletGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
+<<<<<<< HEAD
     gap: 10,
+=======
+>>>>>>> 03e98db8d84f475b5e841e8cac192153a6d66d0c
   },
   drillCard: {
-    borderRadius: 14,
+    borderRadius: 10,
   },
   drillCardTablet: {
-    flexBasis: '48%',
-    flexGrow: 1,
+    width: '48.5%',
   },
   drillTopRow: {
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
+<<<<<<< HEAD
     alignItems: 'flex-start',
     flexWrap: 'wrap',
     gap: 6,
     marginBottom: 4,
+=======
+    marginBottom: 5,
+>>>>>>> 03e98db8d84f475b5e841e8cac192153a6d66d0c
   },
   drillTitle: {
-    fontWeight: '800',
+    fontWeight: '700',
     flex: 1,
+<<<<<<< HEAD
     minWidth: 140,
   },
   diffBadge: {
     paddingHorizontal: 8,
     paddingVertical: 2,
     borderRadius: 8,
+=======
+  },
+  diffBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 99,
+>>>>>>> 03e98db8d84f475b5e841e8cac192153a6d66d0c
     borderWidth: 1,
+    marginLeft: 8,
   },
   diffBadgeText: {
-    fontWeight: '700',
+    fontWeight: '600',
   },
   drillDesc: {
     lineHeight: 16,
+<<<<<<< HEAD
+    marginBottom: 6,
+=======
+    marginBottom: 5,
+  },
+  drillObjective: {
+    fontStyle: 'italic',
+    lineHeight: 15,
     marginBottom: 6,
   },
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    gap: 6,
+>>>>>>> 03e98db8d84f475b5e841e8cac192153a6d66d0c
+  },
   drillMeta: {
-    fontWeight: '700',
+    fontWeight: '600',
+    flexShrink: 1,
+  },
+  quickStartPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 11,
+    paddingVertical: 5,
+    borderRadius: 99,
+  },
+  versionTag: {
+    fontWeight: '600',
   },
   prepBox: {
     marginTop: 14,
