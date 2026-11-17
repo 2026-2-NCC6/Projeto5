@@ -17,6 +17,14 @@ import { useResponsive } from './useResponsive';
 import { PlayIcon, TargetIcon, AwardIcon } from './Icons';
 import { EmergencyStopButton } from './EmergencyStopButton';
 
+const DISPLAY_TARGET_NUMBER: Record<TargetId, number> = {
+  1: 2,
+  2: 5,
+  3: 1,
+  4: 4,
+  5: 3,
+};
+
 interface TargetBoardProps {
   activeTarget: TargetId | null;
   ledCount: number; // 0..8 leds acesos no alvo ativo
@@ -108,11 +116,13 @@ export const TargetBoard: React.FC<TargetBoardProps> = ({
       }
     }
 
+    const displayTargetNumber = DISPLAY_TARGET_NUMBER[targetId];
+
     return (
       <TouchableOpacity
         key={targetId}
         accessibilityRole="button"
-        accessibilityLabel={`Alvo ${targetId}: ${TARGET_LABELS[targetId]}`}
+        accessibilityLabel={`Alvo ${displayTargetNumber}: ${TARGET_LABELS[targetId]}`}
         activeOpacity={0.8}
         style={[
           styles.targetCard,
@@ -136,7 +146,7 @@ export const TargetBoard: React.FC<TargetBoardProps> = ({
               },
             ]}
           >
-            #{targetId}
+            #{displayTargetNumber}
           </Text>
           {isActive && (
             <View
@@ -278,8 +288,8 @@ export const TargetBoard: React.FC<TargetBoardProps> = ({
               }}
             >
               {isPaused
-                ? `⏸ Treino Pausado (Alvo #0${activeTarget || '-'})`
-                : `Alvo #0${activeTarget || '-'} ativo • 🎾 Lançadora: ${currentBallSpeedKmh} km/h (${currentSpinType})`}
+                ? `⏸ Treino Pausado (Alvo #0${activeTarget ? DISPLAY_TARGET_NUMBER[activeTarget] : '-'})`
+                : `Alvo #0${activeTarget ? DISPLAY_TARGET_NUMBER[activeTarget] : '-'} ativo • 🎾 Lançadora: ${currentBallSpeedKmh} km/h (${currentSpinType})`}
             </Text>
             <Text style={{ color: theme.textSecondary, fontWeight: '700', fontSize: fs(11) }}>
               {remainingMs} ms ({ledCount}/8 LEDs)
