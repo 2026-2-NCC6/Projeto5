@@ -5,6 +5,7 @@
  */
 
 import type { TargetId } from '../protocol/serial';
+import type { MotherPlatformSyncReceipt, SessionTelemetryEvent } from './sessions';
 
 export type UserRole = 'JOGADOR' | 'TREINADOR' | 'ADMIN';
 
@@ -160,6 +161,9 @@ export interface CreateSessionDto {
   hardwareMode: 'WEB_SERIAL' | 'REMOTE_GATEWAY' | 'MOCK';
   zoneAnalytics: SessionZoneStat;
   eventsTelemetry?: SessionEventLogItem[];
+  events?: SessionTelemetryEvent[];
+  stopReason?: string | null;
+  goalsMet?: boolean;
   telemetryAuthorized?: boolean; // Proteção LGPD / Coleta mínima para menores
   startedAt: string;
   completedAt: string;
@@ -170,6 +174,9 @@ export interface TrainingSessionRecord extends CreateSessionDto {
   userId?: number | null;
   athleteName: string;
   syncedFromOffline?: boolean;
+  motherPlatformReceipt?: MotherPlatformSyncReceipt | null;
+  evolutionDeltaScore?: number | null;
+  recommendations?: string[];
   createdAt: string;
 }
 

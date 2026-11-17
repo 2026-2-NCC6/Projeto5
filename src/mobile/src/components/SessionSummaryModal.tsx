@@ -18,6 +18,7 @@ import {
   SessionStatsSummary,
 } from '../../../packages/shared/src/contracts/user';
 import { TargetId } from '../../../packages/shared/src/protocol/serial';
+import { MotherPlatformSyncReceipt } from '../../../packages/shared/src/contracts/sessions';
 import { ZoneAnalytics, SessionSyncStatus } from '../fsm/useGameEngine';
 import { api } from '../services/api';
 import { useAccessibility } from '../context/AccessibilityContext';
@@ -41,6 +42,10 @@ interface SessionSummaryViewProps {
   sessionEvents?: SessionEventLogItem[];
   syncStatus?: SessionSyncStatus;
   offlinePendingCount?: number;
+  motherPlatformReceipt?: MotherPlatformSyncReceipt | null;
+  evolutionDeltaScore?: number | null;
+  apiRecommendations?: string[];
+  telemetryAuthorized?: boolean;
   onRetryOfflineSync?: () => void;
   onStartNewSession: () => void;
 }
@@ -56,6 +61,10 @@ export const SessionSummaryView: React.FC<SessionSummaryViewProps> = ({
   sessionEvents = [],
   syncStatus = 'IDLE',
   offlinePendingCount = 0,
+  motherPlatformReceipt = null,
+  evolutionDeltaScore = null,
+  apiRecommendations = [],
+  telemetryAuthorized = !isKidsMode,
   onRetryOfflineSync,
   onStartNewSession,
 }) => {
@@ -159,6 +168,10 @@ export const SessionSummaryView: React.FC<SessionSummaryViewProps> = ({
       'Execute uma sessão na aba Arena para gerar recomendações personalizadas de desempenho por zona.'
     );
   }
+
+  const combinedRecommendations = Array.from(
+    new Set([...(apiRecommendations || []), ...recommendations])
+  );
 
   return (
     <View style={{ gap: isMobile ? 14 : 20 }}>
@@ -327,7 +340,9 @@ export const SessionSummaryView: React.FC<SessionSummaryViewProps> = ({
               {metrics.score} pts
             </Text>
             <Text style={[styles.kpiSub, { color: theme.primary, fontSize: fs(10) }]}>
-              {isKidsMode
+              {evolutionDeltaScore !== null && evolutionDeltaScore !== undefined
+                ? `${evolutionDeltaScore >= 0 ? '+' : ''}${evolutionDeltaScore} pts vs sessão anterior`
+                : isKidsMode
                 ? 'Modo Kids sem penalidade'
                 : totalAttempts > 0
                 ? 'Algoritmo RN03 + bônus ADC'
@@ -441,7 +456,7 @@ export const SessionSummaryView: React.FC<SessionSummaryViewProps> = ({
             </View>
           )}
 
-          {recommendations.map((rec, idx) => (
+          {combinedRecommendations.map((rec, idx) => (
             <Text
               key={idx}
               style={{ color: theme.textSecondary, fontSize: fs(12), lineHeight: 18 }}
@@ -450,7 +465,7 @@ export const SessionSummaryView: React.FC<SessionSummaryViewProps> = ({
             </Text>
           ))}
 
-          {isKidsMode && (
+          {(isKidsMode || !telemetryAuthorized) && (
             <Text
               style={{
                 color: theme.primaryDark,
@@ -459,8 +474,61 @@ export const SessionSummaryView: React.FC<SessionSummaryViewProps> = ({
                 marginTop: 6,
               }}
             >
-              🛡️ Proteção LGPD Infantil Ativa (Seção 3): Coleta mínima aplicada no envio para a API.
+              🛡️ Proteção LGPD Ativa (Seção 3): Coleta mínima aplicada (telemetria detalhada {!telemetryAuthorized ? 'omitida' : 'autorizada'}).
             </Text>
+          )}
+
+          {motherPlatformReceipt && (
+            <View
+              style={[
+                styles.receiptBox,
+                {
+                  backgroundColor: theme.surface,
+                  borderColor:
+                    motherPlatformReceipt.status === 'PENDING'
+                      ? theme.warningBorder
+                      : theme.primaryBorder,
+                },
+              ]}
+            >
+              <Text
+                style={{
+                  color:
+                    motherPlatformReceipt.status === 'PENDING'
+                      ? theme.warning
+                      : theme.primaryDark,
+                  fontWeight: '800',
+                  fontSize: fs(11),
+                }}
+              >
+                🧾 Recibo Plataforma Mãe (RF19): {motherPlatformReceipt.receiptId} • Status:{' '}
+                {motherPlatformReceipt.status}
+              </Text>
+              <Text
+                style={{
+                  color: theme.textSecondary,
+                  fontSize: fs(10),
+                  marginTop: 3,
+                }}
+              >
+                Endpoint: {motherPlatformReceipt.endpoint} • Telemetria LGPD:{' '}
+                {motherPlatformReceipt.telemetryForwarded ? 'Encaminhada' : 'Somente Resumo'} •{' '}
+                {new Date(motherPlatformReceipt.syncedAt).toLocaleString('pt-BR')}
+              </Text>
+              {evolutionDeltaScore !== null && evolutionDeltaScore !== undefined && (
+                <Text
+                  style={{
+                    color: evolutionDeltaScore >= 0 ? theme.primaryDark : theme.warning,
+                    fontWeight: '700',
+                    fontSize: fs(10),
+                    marginTop: 3,
+                  }}
+                >
+                  📈 Evolução no treino: {evolutionDeltaScore >= 0 ? '+' : ''}
+                  {evolutionDeltaScore} pts em relação à sessão anterior.
+                </Text>
+              )}
+            </View>
           )}
         </View>
 
@@ -905,6 +973,12 @@ const styles = StyleSheet.create({
   recBox: {
     padding: 14,
     borderRadius: 14,
+    borderWidth: 1,
+  },
+  receiptBox: {
+    marginTop: 10,
+    padding: 10,
+    borderRadius: 10,
     borderWidth: 1,
   },
   achPill: {

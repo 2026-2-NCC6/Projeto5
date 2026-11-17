@@ -1,4 +1,5 @@
 import { NativeModules, Platform } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   AdminCreateUserDto,
   AuthResponse,
@@ -24,8 +25,10 @@ import {
   bumpDrillVersion,
 } from '../../../packages/shared/src/contracts/drills';
 import {
+  MotherPlatformSyncReceipt,
   SessionAnalyticsSummary,
   SessionRecord,
+  SessionSubmissionResponse,
 } from '../../../packages/shared/src/contracts/sessions';
 import {
   CategoryRecord,
@@ -225,8 +228,51 @@ const FALLBACK_SEED_SESSIONS: TrainingSessionRecord[] = [
 
 class StorageHelper {
   private memoryStore = new Map<string, string>();
+  private hydrationPromise: Promise<void> | null = null;
+
+  constructor() {
+    if (Platform.OS !== 'web') {
+      this.ensureHydrated().catch(() => {});
+    }
+  }
+
+  async ensureHydrated(): Promise<void> {
+    if (Platform.OS === 'web') return;
+    if (!this.hydrationPromise) {
+      this.hydrationPromise = (async () => {
+        try {
+          const entries = await AsyncStorage.getMany([
+            TOKEN_STORAGE_KEY,
+            DRILLS_CACHE_KEY,
+            OFFLINE_SESSIONS_KEY,
+            SESSIONS_HISTORY_CACHE_KEY,
+          ]);
+          for (const [k, v] of Object.entries(entries)) {
+            if (v !== null && v !== undefined && !this.memoryStore.has(k)) {
+              this.memoryStore.set(k, v);
+            }
+          }
+        } catch {}
+      })();
+    }
+    await this.hydrationPromise;
+  }
 
   async getToken(): Promise<string | null> {
+    if (Platform.OS !== 'web') {
+      await this.ensureHydrated();
+      const memTok = this.memoryStore.get(TOKEN_STORAGE_KEY);
+      if (memTok) return memTok;
+      try {
+        const storedTok = await AsyncStorage.getItem(TOKEN_STORAGE_KEY);
+        if (storedTok) {
+          this.memoryStore.set(TOKEN_STORAGE_KEY, storedTok);
+          return storedTok;
+        }
+      } catch {}
+      return null;
+    }
+
     try {
       if (typeof window !== 'undefined') {
         if (window.sessionStorage) {
@@ -253,6 +299,17 @@ class StorageHelper {
       this.memoryStore.delete(TOKEN_STORAGE_KEY);
     }
 
+    if (Platform.OS !== 'web') {
+      try {
+        if (token) {
+          await AsyncStorage.setItem(TOKEN_STORAGE_KEY, token);
+        } else {
+          await AsyncStorage.removeItem(TOKEN_STORAGE_KEY);
+        }
+      } catch {}
+      return;
+    }
+
     try {
       if (typeof window !== 'undefined') {
         if (token) {
@@ -266,6 +323,20 @@ class StorageHelper {
   }
 
   async getItem(key: string): Promise<string | null> {
+    if (Platform.OS !== 'web') {
+      await this.ensureHydrated();
+      const mem = this.memoryStore.get(key);
+      if (mem !== undefined) return mem;
+      try {
+        const stored = await AsyncStorage.getItem(key);
+        if (stored !== null) {
+          this.memoryStore.set(key, stored);
+          return stored;
+        }
+      } catch {}
+      return null;
+    }
+
     try {
       if (typeof window !== 'undefined' && window.localStorage) {
         const val = window.localStorage.getItem(key);
@@ -277,6 +348,13 @@ class StorageHelper {
 
   async setItem(key: string, value: string): Promise<void> {
     this.memoryStore.set(key, value);
+    if (Platform.OS !== 'web') {
+      try {
+        await AsyncStorage.setItem(key, value);
+      } catch {}
+      return;
+    }
+
     try {
       if (typeof window !== 'undefined' && window.localStorage) {
         window.localStorage.setItem(key, value);
@@ -286,6 +364,13 @@ class StorageHelper {
 
   async removeItem(key: string): Promise<void> {
     this.memoryStore.delete(key);
+    if (Platform.OS !== 'web') {
+      try {
+        await AsyncStorage.removeItem(key);
+      } catch {}
+      return;
+    }
+
     try {
       if (typeof window !== 'undefined' && window.localStorage) {
         window.localStorage.removeItem(key);
@@ -309,7 +394,9 @@ class StorageHelper {
     try {
       const serialized = JSON.stringify(value);
       this.memoryStore.set(key, serialized);
-      if (typeof window !== 'undefined' && window.localStorage) {
+      if (Platform.OS !== 'web') {
+        AsyncStorage.setItem(key, serialized).catch(() => {});
+      } else if (typeof window !== 'undefined' && window.localStorage) {
         window.localStorage.setItem(key, serialized);
       }
     } catch {}
@@ -535,6 +622,7 @@ export const api = {
   listDrills: async (
     filters?: DrillListQuery
   ): Promise<{ drills: DrillDefinition[]; source: 'API' | 'CACHE_OFFLINE' }> => {
+    await storage.ensureHydrated();
     try {
       const params = new URLSearchParams();
       if (filters?.category) params.append('category', filters.category);
@@ -599,6 +687,7 @@ export const api = {
       changelogNote?: string;
     }
   ): Promise<{ drill: DrillDefinition; syncedWithApi: boolean }> => {
+    await storage.ensureHydrated();
     try {
       const saved = await request<DrillDefinition>('/drills', {
         method: 'POST',
@@ -665,6 +754,7 @@ export const api = {
     versionBump?: 'PATCH' | 'MINOR' | 'MAJOR',
     notes?: string
   ): Promise<{ drill: DrillDefinition; syncedWithApi: boolean; motherPlatformReceiptId?: string | null }> => {
+    await storage.ensureHydrated();
     try {
       const updated = await request<DrillDefinition & { drill?: DrillDefinition; motherPlatformReceiptId?: string | null }>(
         `/drills/${encodeURIComponent(id)}/status`,
@@ -723,9 +813,16 @@ export const api = {
 
   submitSession: async (
     payload: CreateSessionDto & { athleteName?: string; correlationId?: string }
-  ): Promise<{ record: TrainingSessionRecord; syncState: 'SYNCED' | 'OFFLINE_QUEUED' }> => {
+  ): Promise<{
+    record: TrainingSessionRecord;
+    syncState: 'SYNCED' | 'OFFLINE_QUEUED';
+    motherPlatformReceipt: MotherPlatformSyncReceipt | null;
+    evolutionDeltaScore: number | null;
+    recommendations: string[];
+  }> => {
+    await storage.ensureHydrated();
     try {
-      const saved = await request<TrainingSessionRecord>(
+      const saved = await request<TrainingSessionRecord & Partial<SessionSubmissionResponse>>(
         '/sessions',
         {
           method: 'POST',
@@ -749,13 +846,27 @@ export const api = {
       // Tenta descarregar eventuais sessões pendentes na fila offline
       api.flushOfflineSessions().catch(() => {});
 
-      return { record: saved, syncState: 'SYNCED' };
+      return {
+        record: saved,
+        syncState: 'SYNCED',
+        motherPlatformReceipt: saved.motherPlatformReceipt ?? null,
+        evolutionDeltaScore: saved.evolutionDeltaScore ?? null,
+        recommendations: Array.isArray(saved.recommendations) ? saved.recommendations : [],
+      };
     } catch {
       // Armazena na fila persistente offline para envio posterior quando a conexão voltar (RF21)
       const queue = api.getOfflinePendingSessions();
       if (!queue.some((q) => q.sessionUuid === payload.sessionUuid)) {
         storage.setJson(OFFLINE_SESSIONS_KEY, [...queue, payload]);
       }
+
+      const offlineReceipt: MotherPlatformSyncReceipt = {
+        receiptId: `offline-${payload.sessionUuid}`,
+        status: 'PENDING',
+        syncedAt: new Date().toISOString(),
+        telemetryForwarded: false,
+        endpoint: '/api/v1/mother-platform/ingest',
+      };
 
       const localRecord: TrainingSessionRecord = {
         ...payload,
@@ -764,6 +875,7 @@ export const api = {
           ? `${(payload.athleteName || 'Praticante').split(' ')[0]} (Perfil Kids Protegido LGPD)`
           : payload.athleteName || 'Praticante Convidado',
         syncedFromOffline: true,
+        motherPlatformReceipt: offlineReceipt,
         createdAt: new Date().toISOString(),
       };
 
@@ -776,11 +888,18 @@ export const api = {
         ...history.filter((h) => h.sessionUuid !== localRecord.sessionUuid),
       ]);
 
-      return { record: localRecord, syncState: 'OFFLINE_QUEUED' };
+      return {
+        record: localRecord,
+        syncState: 'OFFLINE_QUEUED',
+        motherPlatformReceipt: offlineReceipt,
+        evolutionDeltaScore: null,
+        recommendations: [],
+      };
     }
   },
 
   flushOfflineSessions: async (): Promise<{ flushedCount: number; remainingCount: number }> => {
+    await storage.ensureHydrated();
     const queue = api.getOfflinePendingSessions();
     if (queue.length === 0) {
       return { flushedCount: 0, remainingCount: 0 };
@@ -815,6 +934,7 @@ export const api = {
     stats: SessionStatsSummary;
     source: 'API' | 'CACHE_OFFLINE';
   }> => {
+    await storage.ensureHydrated();
     const params = new URLSearchParams();
     if (filters?.drillId && filters.drillId !== 'ALL') {
       params.append('drillId', filters.drillId);

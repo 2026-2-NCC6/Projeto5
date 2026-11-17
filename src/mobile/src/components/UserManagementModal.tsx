@@ -25,20 +25,66 @@ import {
   UserWithProfile,
 } from '../../../packages/shared/src/contracts/user';
 import {
+  CategoryRecord,
+  IoTDeviceRecord,
+  IoTDeviceStatus,
+  IoTTransportType,
+  SafetyIncidentRecord,
+  SystemSettingRecord,
+} from '../../../packages/shared/src/contracts/admin';
+import {
   anonymizeDisplayName,
   maskEmailAddress,
 } from '../../../packages/shared/src/security/validation';
 import { useAccessibility } from '../context/AccessibilityContext';
 import { useResponsive } from './useResponsive';
 import {
+  ActivityIcon,
+  CpuIcon,
   FileTextIcon,
+  ShieldAlertIcon,
+  SlidersIcon,
   TrashIcon,
   RefreshIcon,
   EyeIcon,
   CheckCircleIcon,
   LockIcon,
   CloseIcon,
+  UsersIcon,
 } from './Icons';
+
+type ManagementSubTab =
+  | 'USERS'
+  | 'DEVICES'
+  | 'CATEGORIES_SETTINGS'
+  | 'INCIDENTS_MOTHER';
+
+export interface MotherPlatformSyncLogRecord {
+  id: number;
+  receiptId: string;
+  direction: string;
+  entityId: string;
+  mode: string;
+  status: string;
+  telemetryForwarded: boolean;
+  correlationId?: string | null;
+  summary?: Record<string, unknown> | null;
+  createdAt: string;
+}
+
+const TRANSPORT_OPTIONS: IoTTransportType[] = [
+  'USB_SERIAL',
+  'WIFI_WS',
+  'BLE',
+  'SIMULATOR',
+];
+
+const DEVICE_STATUS_CYCLE: Record<IoTDeviceStatus, IoTDeviceStatus> = {
+  ONLINE: 'MAINTENANCE',
+  MAINTENANCE: 'OFFLINE',
+  OFFLINE: 'ONLINE',
+  FAULT: 'ONLINE',
+};
 
 interface ManagementViewProps {
   onCountChange?: (count: number) => void;
@@ -146,6 +192,42 @@ export function ManagementView({
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [isLoadingAudit, setIsLoadingAudit] = useState(false);
 
+  // Sub-abas do Painel Administrativo Unificado (RF17, RF19, RF22, RF23)
+  const [activeSubTab, setActiveSubTab] = useState<ManagementSubTab>('USERS');
+
+  // Dispositivos IoT (RF05 / RF17)
+  const [devices, setDevices] = useState<IoTDeviceRecord[]>([]);
+  const [isLoadingDevices, setIsLoadingDevices] = useState(false);
+  const [newDevCode, setNewDevCode] = useState('');
+  const [newDevName, setNewDevName] = useState('');
+  const [newDevModel, setNewDevModel] = useState('Arduino Uno R3 + Piezo 5x');
+  const [newDevFw, setNewDevFw] = useState('2.4.0');
+  const [newDevTransport, setNewDevTransport] = useState<IoTTransportType>('USB_SERIAL');
+  const [newDevPairingToken, setNewDevPairingToken] = useState('');
+  const [createdPairingTokenOnce, setCreatedPairingTokenOnce] = useState<string | null>(null);
+  const [isSavingDevice, setIsSavingDevice] = useState(false);
+  const [deviceFeedback, setDeviceFeedback] = useState<string | null>(null);
+
+  // Categorias & Parâmetros do Sistema (RF17)
+  const [categories, setCategories] = useState<CategoryRecord[]>([]);
+  const [systemSettings, setSystemSettings] = useState<SystemSettingRecord[]>([]);
+  const [editingSettings, setEditingSettings] = useState<Record<string, string>>({});
+  const [isLoadingCatSettings, setIsLoadingCatSettings] = useState(false);
+  const [newCatSlug, setNewCatSlug] = useState('');
+  const [newCatCode, setNewCatCode] = useState('');
+  const [newCatName, setNewCatName] = useState('');
+  const [newCatDesc, setNewCatDesc] = useState('');
+  const [newCatAudience, setNewCatAudience] = useState('TODOS');
+  const [savingSettingKey, setSavingSettingKey] = useState<string | null>(null);
+  const [catSettingsFeedback, setCatSettingsFeedback] = useState<string | null>(null);
+
+  // Incidentes !EMG & Plataforma Mãe (RF19 / RF22)
+  const [incidents, setIncidents] = useState<SafetyIncidentRecord[]>([]);
+  const [unresolvedOnly, setUnresolvedOnly] = useState(false);
+  const [motherLogs, setMotherLogs] = useState<MotherPlatformSyncLogRecord[]>([]);
+  const [isLoadingIncidents, setIsLoadingIncidents] = useState(false);
+  const [incidentsFeedback, setIncidentsFeedback] = useState<string | null>(null);
+
   const isAdmin = user?.role === 'ADMIN';
   const isCoachOrAdmin = user?.role === 'ADMIN' || user?.role === 'TREINADOR';
 
@@ -194,6 +276,61 @@ export function ManagementView({
     }
   }, [isAdmin]);
 
+  const loadDevices = useCallback(async () => {
+    setIsLoadingDevices(true);
+    try {
+      const list = await api.listDevices();
+      setDevices(Array.isArray(list) ? list : []);
+    } catch (err: any) {
+      setDeviceFeedback(`⚠ ${err?.message || 'Falha ao carregar dispositivos IoT'}`);
+    } finally {
+      setIsLoadingDevices(false);
+    }
+  }, []);
+
+  const loadCategoriesAndSettings = useCallback(async () => {
+    setIsLoadingCatSettings(true);
+    try {
+      const [cats, settings] = await Promise.all([
+        api.listCategories(),
+        api.listSystemSettings(),
+      ]);
+      setCategories(Array.isArray(cats) ? cats : []);
+      const safeSettings = Array.isArray(settings) ? settings : [];
+      setSystemSettings(safeSettings);
+      const nextDraft: Record<string, string> = {};
+      for (const s of safeSettings) {
+        nextDraft[s.settingKey] = s.settingValue;
+      }
+      setEditingSettings(nextDraft);
+    } catch (err: any) {
+      setCatSettingsFeedback(
+        `⚠ ${err?.message || 'Falha ao carregar categorias e parâmetros'}`
+      );
+    } finally {
+      setIsLoadingCatSettings(false);
+    }
+  }, []);
+
+  const loadIncidentsAndMotherLogs = useCallback(async () => {
+    if (!isCoachOrAdmin) return;
+    setIsLoadingIncidents(true);
+    try {
+      const [incList, mpLogs] = await Promise.all([
+        api.listSafetyIncidents(unresolvedOnly),
+        api.getMotherPlatformSyncLogs(25),
+      ]);
+      setIncidents(Array.isArray(incList) ? incList : []);
+      setMotherLogs(Array.isArray(mpLogs) ? mpLogs : []);
+    } catch (err: any) {
+      setIncidentsFeedback(
+        `⚠ ${err?.message || 'Falha ao consultar incidentes e logs da Plataforma Mãe'}`
+      );
+    } finally {
+      setIsLoadingIncidents(false);
+    }
+  }, [isCoachOrAdmin, unresolvedOnly]);
+
   useEffect(() => {
     if (isCoachOrAdmin) {
       loadUsers();
@@ -204,6 +341,21 @@ export function ManagementView({
       loadAudit();
     }
   }, [isCoachOrAdmin, isAdmin, loadUsers, loadAudit, onCountChange]);
+
+  useEffect(() => {
+    if (activeSubTab === 'DEVICES') {
+      loadDevices();
+    } else if (activeSubTab === 'CATEGORIES_SETTINGS') {
+      loadCategoriesAndSettings();
+    } else if (activeSubTab === 'INCIDENTS_MOTHER') {
+      loadIncidentsAndMotherLogs();
+    }
+  }, [
+    activeSubTab,
+    loadDevices,
+    loadCategoriesAndSettings,
+    loadIncidentsAndMotherLogs,
+  ]);
 
   const cycleNewRole = () => {
     setNewRole((prev) => getNextRole(prev));
@@ -329,19 +481,252 @@ export function ManagementView({
     }
   };
 
+  const handleRegisterDevice = async () => {
+    setDeviceFeedback(null);
+    setCreatedPairingTokenOnce(null);
+    if (!isAdmin) {
+      setDeviceFeedback('⚠ Apenas Administradores podem registrar dispositivos IoT.');
+      return;
+    }
+    if (!newDevCode.trim() || !newDevName.trim() || !newDevModel.trim()) {
+      setDeviceFeedback('Preencha código do dispositivo, nome e modelo de hardware.');
+      return;
+    }
+
+    setIsSavingDevice(true);
+    try {
+      const res = await api.registerDevice({
+        deviceCode: newDevCode.trim().toUpperCase(),
+        name: newDevName.trim(),
+        hardwareModel: newDevModel.trim(),
+        firmwareVersion: newDevFw.trim() || '2.4.0',
+        transportType: newDevTransport,
+        pairingToken: newDevPairingToken.trim() || undefined,
+      });
+      setCreatedPairingTokenOnce(res.pairingTokenOnce);
+      setNewDevCode('');
+      setNewDevName('');
+      setNewDevPairingToken('');
+      setDeviceFeedback(`✓ Dispositivo ${res.device.deviceCode} cadastrado na Arena!`);
+      await loadDevices();
+      if (isAdmin) loadAudit();
+    } catch (err: any) {
+      setDeviceFeedback(`⚠ ${err?.message || 'Falha ao cadastrar dispositivo IoT'}`);
+    } finally {
+      setIsSavingDevice(false);
+    }
+  };
+
+  const handleCycleDeviceStatus = async (dev: IoTDeviceRecord) => {
+    if (!isAdmin) return;
+    const nextStatus = DEVICE_STATUS_CYCLE[dev.status] || 'ONLINE';
+    setDeviceFeedback(null);
+    try {
+      await api.updateDevice(dev.id, { status: nextStatus });
+      setDeviceFeedback(`✓ Status de ${dev.deviceCode} alterado para ${nextStatus}.`);
+      await loadDevices();
+      if (isAdmin) loadAudit();
+    } catch (err: any) {
+      setDeviceFeedback(`⚠ ${err?.message || 'Falha ao atualizar status do dispositivo'}`);
+    }
+  };
+
+  const handleToggleDeviceActive = async (dev: IoTDeviceRecord) => {
+    if (!isAdmin) return;
+    setDeviceFeedback(null);
+    try {
+      await api.updateDevice(dev.id, { active: !dev.active });
+      setDeviceFeedback(
+        `✓ Dispositivo ${dev.deviceCode} ${!dev.active ? 'ativado' : 'desativado'}.`
+      );
+      await loadDevices();
+    } catch (err: any) {
+      setDeviceFeedback(`⚠ ${err?.message || 'Falha ao alterar ativação do dispositivo'}`);
+    }
+  };
+
+  const handleCalibrateDeviceThresholds = async (
+    dev: IoTDeviceRecord,
+    thresholdMv: number
+  ) => {
+    if (!isAdmin) return;
+    setDeviceFeedback(null);
+    try {
+      await api.updateDevice(dev.id, {
+        piezoThresholds: [thresholdMv, thresholdMv, thresholdMv, thresholdMv, thresholdMv],
+      });
+      setDeviceFeedback(
+        `✓ Limiares piezoelétricos de ${dev.deviceCode} calibrados em ${thresholdMv} mV.`
+      );
+      await loadDevices();
+    } catch (err: any) {
+      setDeviceFeedback(`⚠ ${err?.message || 'Falha ao calibrar sensores piezo'}`);
+    }
+  };
+
+  const handleCreateCategory = async () => {
+    setCatSettingsFeedback(null);
+    if (!isAdmin) {
+      setCatSettingsFeedback('⚠ Apenas Administradores podem cadastrar categorias.');
+      return;
+    }
+    if (!newCatSlug.trim() || !newCatCode.trim() || !newCatName.trim()) {
+      setCatSettingsFeedback('Preencha slug, código e nome da categoria.');
+      return;
+    }
+    try {
+      await api.createCategory({
+        slug: newCatSlug.trim().toLowerCase(),
+        code: newCatCode.trim().toUpperCase(),
+        name: newCatName.trim(),
+        description: newCatDesc.trim(),
+        targetAudience: newCatAudience.trim() || 'TODOS',
+      });
+      setNewCatSlug('');
+      setNewCatCode('');
+      setNewCatName('');
+      setNewCatDesc('');
+      setCatSettingsFeedback('✓ Nova categoria criada e persistida no MySQL!');
+      await loadCategoriesAndSettings();
+    } catch (err: any) {
+      setCatSettingsFeedback(`⚠ ${err?.message || 'Falha ao criar categoria'}`);
+    }
+  };
+
+  const handleToggleCategoryActive = async (cat: CategoryRecord) => {
+    if (!isAdmin) return;
+    setCatSettingsFeedback(null);
+    try {
+      await api.updateCategory(cat.id, { active: !cat.active });
+      setCatSettingsFeedback(
+        `✓ Categoria "${cat.name}" ${!cat.active ? 'ativada' : 'desativada'}.`
+      );
+      await loadCategoriesAndSettings();
+    } catch (err: any) {
+      setCatSettingsFeedback(`⚠ ${err?.message || 'Falha ao atualizar categoria'}`);
+    }
+  };
+
+  const handleSaveSystemSetting = async (settingKey: string) => {
+    if (!isAdmin) return;
+    setCatSettingsFeedback(null);
+    setSavingSettingKey(settingKey);
+    try {
+      const value = editingSettings[settingKey] ?? '';
+      await api.updateSystemSetting(settingKey, value);
+      setCatSettingsFeedback(`✓ Parâmetro "${settingKey}" atualizado no MySQL.`);
+      await loadCategoriesAndSettings();
+    } catch (err: any) {
+      setCatSettingsFeedback(`⚠ ${err?.message || 'Falha ao atualizar parâmetro'}`);
+    } finally {
+      setSavingSettingKey(null);
+    }
+  };
+
+  const handleResolveIncident = async (id: number) => {
+    if (!isCoachOrAdmin) return;
+    setIncidentsFeedback(null);
+    try {
+      await api.resolveSafetyIncident(id);
+      setIncidentsFeedback(`✓ Incidente #${id} marcado como resolvido com trilha auditável.`);
+      await loadIncidentsAndMotherLogs();
+      if (isAdmin) loadAudit();
+    } catch (err: any) {
+      setIncidentsFeedback(`⚠ ${err?.message || 'Falha ao resolver incidente'}`);
+    }
+  };
+
   const hwHistory = hardwareManager.logHistory.slice(-4).reverse();
   const displayProfilesCount = isCoachOrAdmin
     ? usersList.length
     : DEMO_FALLBACK_PROFILES.length;
 
+  const subTabs: Array<{
+    key: ManagementSubTab;
+    label: string;
+    mobileLabel: string;
+    renderIcon: (color: string) => React.ReactNode;
+  }> = [
+    {
+      key: 'USERS',
+      label: '1. Usuários, Perfis & Auditoria',
+      mobileLabel: 'Usuários',
+      renderIcon: (c) => <UsersIcon size={14} color={c} />,
+    },
+    {
+      key: 'DEVICES',
+      label: '2. Dispositivos IoT (RF05)',
+      mobileLabel: 'IoT',
+      renderIcon: (c) => <CpuIcon size={14} color={c} />,
+    },
+    {
+      key: 'CATEGORIES_SETTINGS',
+      label: '3. Categorias & Parâmetros (RF17)',
+      mobileLabel: 'Parâmetros',
+      renderIcon: (c) => <SlidersIcon size={14} color={c} />,
+    },
+    {
+      key: 'INCIDENTS_MOTHER',
+      label: '4. Incidentes !EMG & Plataforma Mãe',
+      mobileLabel: 'Incidentes',
+      renderIcon: (c) => <ShieldAlertIcon size={14} color={c} />,
+    },
+  ];
+
   return (
-    <View
-      style={[
-        styles.grid,
-        !isWide && styles.gridStacked,
-        { gap: sectionGap },
-      ]}
-    >
+    <View style={{ gap: sectionGap }}>
+      {/* Barra Unificada de Sub-Abas Administrativas (RF17, RF19, RF22, RF23) */}
+      <View
+        style={[
+          styles.subTabsBar,
+          {
+            backgroundColor: theme.surface,
+            borderColor: theme.border,
+            padding: isMobile ? 8 : 10,
+          },
+        ]}
+      >
+        {subTabs.map((tab) => {
+          const isActive = activeSubTab === tab.key;
+          const color = isActive ? '#FFFFFF' : theme.textSecondary;
+          return (
+            <TouchableOpacity
+              key={tab.key}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: isActive }}
+              activeOpacity={0.85}
+              style={[
+                styles.subTabPill,
+                {
+                  backgroundColor: isActive ? theme.primary : theme.surfaceMuted,
+                  borderColor: isActive ? theme.primary : theme.borderNeutral,
+                },
+              ]}
+              onPress={() => setActiveSubTab(tab.key)}
+            >
+              {tab.renderIcon(color)}
+              <Text
+                style={{
+                  color,
+                  fontWeight: '700',
+                  fontSize: fs(isMobile ? 11 : 12),
+                }}
+              >
+                {isMobile ? tab.mobileLabel : tab.label}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
+      {activeSubTab === 'USERS' && (
+        <View
+          style={[
+            styles.grid,
+            !isWide && styles.gridStacked,
+            { gap: sectionGap },
+          ]}
+        >
       {/* COLUNA ESQUERDA: Gestão de Atletas e Comissões (RBAC) */}
       <View
         style={[
@@ -1319,11 +1704,787 @@ export function ManagementView({
           </View>
         )}
       </View>
+        </View>
+      )}
+
+      {/* SUB-ABA 2: DISPOSITIVOS IoT & CALIBRAÇÃO (RF05 / RF17) */}
+      {activeSubTab === 'DEVICES' && (
+        <View
+          style={[
+            styles.leftCard,
+            styles.fullWidth,
+            {
+              backgroundColor: theme.surface,
+              borderColor: theme.border,
+              padding: cardPadding,
+            },
+          ]}
+        >
+          <View style={styles.headerRow}>
+            <View style={{ flex: 1, minWidth: 200 }}>
+              <View style={styles.auditTitleRow}>
+                <CpuIcon size={18} color={theme.primary} />
+                <Text
+                  style={[
+                    styles.cardTitle,
+                    { color: theme.text, fontSize: isMobile ? fs(16) : fs(18) },
+                  ]}
+                >
+                  Controladores & Dispositivos IoT (RF05 / RF17)
+                </Text>
+              </View>
+              <Text style={[styles.cardSubtitle, { color: theme.textSecondary, fontSize: fs(12) }]}>
+                Cadastre controladores Arduino/Wi-Fi, calibre limiares dos 5 piezos e alterne status operacional.
+              </Text>
+            </View>
+
+            <TouchableOpacity
+              style={[
+                styles.editOwnBtn,
+                {
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 5,
+                  backgroundColor: theme.surfaceMint,
+                  borderColor: theme.primaryBorder,
+                },
+              ]}
+              onPress={loadDevices}
+            >
+              <RefreshIcon size={13} color={theme.primaryDark} />
+              <Text style={{ color: theme.primaryDark, fontWeight: '700', fontSize: fs(11) }}>
+                Atualizar
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {deviceFeedback && (
+            <View
+              style={[
+                styles.feedbackBanner,
+                { backgroundColor: theme.surfaceMint, borderColor: theme.primaryBorder },
+              ]}
+            >
+              <Text style={{ color: theme.primaryDark, fontWeight: '700', fontSize: fs(12) }}>
+                {deviceFeedback}
+              </Text>
+            </View>
+          )}
+
+          {createdPairingTokenOnce && (
+            <View
+              style={[
+                styles.feedbackBanner,
+                { backgroundColor: theme.warningSoft, borderColor: theme.warningBorder },
+              ]}
+            >
+              <Text style={{ color: theme.warning, fontWeight: '800', fontSize: fs(11.5) }}>
+                🔑 Token de Pareamento Único (salve agora): {createdPairingTokenOnce}
+              </Text>
+            </View>
+          )}
+
+          {isAdmin ? (
+            <View
+              style={[
+                styles.rf02EditorBox,
+                { backgroundColor: theme.bg, borderColor: theme.primaryBorder },
+              ]}
+            >
+              <Text style={{ color: theme.primaryDark, fontWeight: '800', fontSize: fs(12.5), marginBottom: 8 }}>
+                + Registrar Novo Controlador IoT (RF05)
+              </Text>
+              <View style={[styles.quickFormRow, isMobile && { flexDirection: 'column', alignItems: 'stretch' }]}>
+                <TextInput
+                  style={[
+                    styles.formInput,
+                    { backgroundColor: theme.surface, borderColor: theme.borderNeutral, color: theme.text, fontSize: fs(12) },
+                  ]}
+                  value={newDevCode}
+                  onChangeText={setNewDevCode}
+                  placeholder="Código (ex: STA-QUADRA-02)"
+                  placeholderTextColor={theme.textMuted}
+                  autoCapitalize="characters"
+                />
+                <TextInput
+                  style={[
+                    styles.formInput,
+                    { backgroundColor: theme.surface, borderColor: theme.borderNeutral, color: theme.text, fontSize: fs(12) },
+                  ]}
+                  value={newDevName}
+                  onChangeText={setNewDevName}
+                  placeholder="Nome identificador (ex: Controlador Quadra Central)"
+                  placeholderTextColor={theme.textMuted}
+                />
+              </View>
+
+              <View style={[styles.quickFormRow, { marginTop: 8 }, isMobile && { flexDirection: 'column', alignItems: 'stretch' }]}>
+                <TextInput
+                  style={[
+                    styles.formInput,
+                    { backgroundColor: theme.surface, borderColor: theme.borderNeutral, color: theme.text, fontSize: fs(12) },
+                  ]}
+                  value={newDevModel}
+                  onChangeText={setNewDevModel}
+                  placeholder="Modelo Hardware"
+                  placeholderTextColor={theme.textMuted}
+                />
+                <TextInput
+                  style={[
+                    styles.formInput,
+                    { backgroundColor: theme.surface, borderColor: theme.borderNeutral, color: theme.text, fontSize: fs(12) },
+                  ]}
+                  value={newDevFw}
+                  onChangeText={setNewDevFw}
+                  placeholder="Firmware (ex: 2.4.0)"
+                  placeholderTextColor={theme.textMuted}
+                />
+                <TextInput
+                  style={[
+                    styles.formInput,
+                    { backgroundColor: theme.surface, borderColor: theme.borderNeutral, color: theme.text, fontSize: fs(12) },
+                  ]}
+                  value={newDevPairingToken}
+                  onChangeText={setNewDevPairingToken}
+                  placeholder="Token opcional (>= 12 chars)"
+                  placeholderTextColor={theme.textMuted}
+                />
+              </View>
+
+              <View style={[styles.quickFormRow, { marginTop: 8 }]}>
+                <TouchableOpacity
+                  style={[
+                    styles.roleSelectPill,
+                    { backgroundColor: theme.surface, borderColor: theme.borderNeutral },
+                  ]}
+                  onPress={() => {
+                    const idx = TRANSPORT_OPTIONS.indexOf(newDevTransport);
+                    setNewDevTransport(TRANSPORT_OPTIONS[(idx + 1) % TRANSPORT_OPTIONS.length]);
+                  }}
+                >
+                  <Text style={{ color: theme.text, fontWeight: '700', fontSize: fs(11) }}>
+                    Transporte: {newDevTransport} ↻
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.addBtn, { backgroundColor: theme.primary }]}
+                  disabled={isSavingDevice}
+                  onPress={handleRegisterDevice}
+                >
+                  <Text style={{ color: '#FFFFFF', fontWeight: '800', fontSize: fs(12) }}>
+                    {isSavingDevice ? 'Registrando...' : '+ Cadastrar Controlador'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          ) : (
+            <View
+              style={[
+                styles.rbacHintBar,
+                { backgroundColor: theme.surfaceMuted, borderColor: theme.borderNeutral },
+              ]}
+            >
+              <LockIcon size={14} color={theme.primaryDark} />
+              <Text style={{ color: theme.textSecondary, fontSize: fs(11), flex: 1 }}>
+                Cadastro e calibração administrativa de controladores IoT exigem perfil ADMIN.
+              </Text>
+            </View>
+          )}
+
+          {isLoadingDevices ? (
+            <ActivityIndicator color={theme.primary} style={{ marginVertical: 20 }} />
+          ) : (
+            <View style={styles.profileList}>
+              {devices.map((dev) => (
+                <View
+                  key={dev.id}
+                  style={[
+                    styles.profileCard,
+                    {
+                      backgroundColor: theme.bg,
+                      borderColor: dev.active ? theme.primaryBorder : theme.borderNeutral,
+                      opacity: dev.active ? 1 : 0.65,
+                      flexDirection: 'column',
+                      alignItems: 'stretch',
+                    },
+                  ]}
+                >
+                  <View style={[styles.auditItemTop, { gap: 8 }]}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: theme.text, fontWeight: '800', fontSize: fs(13) }}>
+                        {dev.deviceCode} • {dev.name}
+                      </Text>
+                      <Text style={{ color: theme.textSecondary, fontSize: fs(11), marginTop: 2 }}>
+                        {dev.hardwareModel} • FW {dev.firmwareVersion} • {dev.transportType}
+                      </Text>
+                      <Text style={{ color: theme.primaryDark, fontWeight: '700', fontSize: fs(10.5), marginTop: 3 }}>
+                        Limiares Piezo (A0..A4): [{dev.piezoThresholds.join(', ')}] mV
+                      </Text>
+                    </View>
+
+                    <View style={[styles.roleBadge, { backgroundColor: theme.surfaceMint }]}>
+                      <Text style={{ color: theme.primaryDark, fontWeight: '800', fontSize: fs(10) }}>
+                        {dev.status} • {dev.active ? 'ATIVO' : 'INATIVO'}
+                      </Text>
+                    </View>
+                  </View>
+
+                  {isAdmin && (
+                    <View style={[styles.quickFormRow, { marginTop: 8 }]}>
+                      <TouchableOpacity
+                        style={[
+                          styles.switchProfileBtn,
+                          { backgroundColor: theme.surface, borderColor: theme.primaryBorder },
+                        ]}
+                        onPress={() => handleCycleDeviceStatus(dev)}
+                      >
+                        <Text style={{ color: theme.primaryDark, fontWeight: '700', fontSize: fs(10.5) }}>
+                          Status ↻ ({DEVICE_STATUS_CYCLE[dev.status] || 'ONLINE'})
+                        </Text>
+                      </TouchableOpacity>
+
+                      {[200, 250, 320].map((mv) => (
+                        <TouchableOpacity
+                          key={mv}
+                          style={[
+                            styles.switchProfileBtn,
+                            { backgroundColor: theme.surface, borderColor: theme.borderNeutral },
+                          ]}
+                          onPress={() => handleCalibrateDeviceThresholds(dev, mv)}
+                        >
+                          <Text style={{ color: theme.text, fontWeight: '700', fontSize: fs(10.5) }}>
+                            Calibrar {mv} mV
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+
+                      <TouchableOpacity
+                        style={[
+                          styles.switchProfileBtn,
+                          {
+                            backgroundColor: dev.active ? theme.warningSoft : theme.surfaceMint,
+                            borderColor: dev.active ? theme.warningBorder : theme.primaryBorder,
+                          },
+                        ]}
+                        onPress={() => handleToggleDeviceActive(dev)}
+                      >
+                        <Text
+                          style={{
+                            color: dev.active ? theme.warning : theme.primaryDark,
+                            fontWeight: '700',
+                            fontSize: fs(10.5),
+                          }}
+                        >
+                          {dev.active ? 'Desativar' : 'Reativar'}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </View>
+              ))}
+            </View>
+          )}
+        </View>
+      )}
+
+      {/* SUB-ABA 3: CATEGORIAS & PARÂMETROS GERAIS (RF17) */}
+      {activeSubTab === 'CATEGORIES_SETTINGS' && (
+        <View
+          style={[
+            styles.grid,
+            !isWide && styles.gridStacked,
+            { gap: sectionGap },
+          ]}
+        >
+          {/* Coluna Esquerda: Categorias de Treino */}
+          <View
+            style={[
+              styles.leftCard,
+              !isWide && styles.fullWidth,
+              {
+                backgroundColor: theme.surface,
+                borderColor: theme.border,
+                padding: cardPadding,
+              },
+            ]}
+          >
+            <View style={styles.headerRow}>
+              <View style={styles.auditTitleRow}>
+                <SlidersIcon size={18} color={theme.primary} />
+                <Text style={[styles.cardTitle, { color: theme.text, fontSize: isMobile ? fs(15.5) : fs(17) }]}>
+                  Categorias de Treino (RF17)
+                </Text>
+              </View>
+              <TouchableOpacity onPress={loadCategoriesAndSettings}>
+                <RefreshIcon size={14} color={theme.primaryDark} />
+              </TouchableOpacity>
+            </View>
+
+            {catSettingsFeedback && (
+              <View
+                style={[
+                  styles.feedbackBanner,
+                  { backgroundColor: theme.surfaceMint, borderColor: theme.primaryBorder },
+                ]}
+              >
+                <Text style={{ color: theme.primaryDark, fontWeight: '700', fontSize: fs(11.5) }}>
+                  {catSettingsFeedback}
+                </Text>
+              </View>
+            )}
+
+            {isAdmin && (
+              <View
+                style={[
+                  styles.rf02EditorBox,
+                  { backgroundColor: theme.bg, borderColor: theme.primaryBorder },
+                ]}
+              >
+                <Text style={{ color: theme.primaryDark, fontWeight: '800', fontSize: fs(12), marginBottom: 6 }}>
+                  + Nova Categoria
+                </Text>
+                <View style={[styles.quickFormRow, isMobile && { flexDirection: 'column', alignItems: 'stretch' }]}>
+                  <TextInput
+                    style={[
+                      styles.formInput,
+                      { backgroundColor: theme.surface, borderColor: theme.borderNeutral, color: theme.text, fontSize: fs(12) },
+                    ]}
+                    value={newCatSlug}
+                    onChangeText={setNewCatSlug}
+                    placeholder="slug (ex: voleio-rede)"
+                    placeholderTextColor={theme.textMuted}
+                    autoCapitalize="none"
+                  />
+                  <TextInput
+                    style={[
+                      styles.formInput,
+                      { backgroundColor: theme.surface, borderColor: theme.borderNeutral, color: theme.text, fontSize: fs(12) },
+                    ]}
+                    value={newCatCode}
+                    onChangeText={setNewCatCode}
+                    placeholder="CÓDIGO (ex: VOLLEY)"
+                    placeholderTextColor={theme.textMuted}
+                    autoCapitalize="characters"
+                  />
+                </View>
+                <View style={[styles.quickFormRow, { marginTop: 8 }, isMobile && { flexDirection: 'column', alignItems: 'stretch' }]}>
+                  <TextInput
+                    style={[
+                      styles.formInput,
+                      { backgroundColor: theme.surface, borderColor: theme.borderNeutral, color: theme.text, fontSize: fs(12) },
+                    ]}
+                    value={newCatName}
+                    onChangeText={setNewCatName}
+                    placeholder="Nome da categoria"
+                    placeholderTextColor={theme.textMuted}
+                  />
+                  <TextInput
+                    style={[
+                      styles.formInput,
+                      { backgroundColor: theme.surface, borderColor: theme.borderNeutral, color: theme.text, fontSize: fs(12) },
+                    ]}
+                    value={newCatAudience}
+                    onChangeText={setNewCatAudience}
+                    placeholder="Público (TODOS / KIDS)"
+                    placeholderTextColor={theme.textMuted}
+                  />
+                </View>
+                <View style={[styles.quickFormRow, { marginTop: 8 }, isMobile && { flexDirection: 'column', alignItems: 'stretch' }]}>
+                  <TextInput
+                    style={[
+                      styles.formInput,
+                      { backgroundColor: theme.surface, borderColor: theme.borderNeutral, color: theme.text, fontSize: fs(12) },
+                    ]}
+                    value={newCatDesc}
+                    onChangeText={setNewCatDesc}
+                    placeholder="Descrição breve da categoria"
+                    placeholderTextColor={theme.textMuted}
+                  />
+                  <TouchableOpacity
+                    style={[styles.addBtn, { backgroundColor: theme.primary }]}
+                    onPress={handleCreateCategory}
+                  >
+                    <Text style={{ color: '#FFFFFF', fontWeight: '800', fontSize: fs(11.5) }}>
+                      + Criar Categoria
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+
+            {isLoadingCatSettings ? (
+              <ActivityIndicator color={theme.primary} style={{ marginVertical: 20 }} />
+            ) : (
+              <View style={styles.profileList}>
+                {categories.map((cat) => (
+                  <View
+                    key={cat.id}
+                    style={[
+                      styles.profileCard,
+                      {
+                        backgroundColor: theme.bg,
+                        borderColor: cat.active ? theme.primaryBorder : theme.borderNeutral,
+                        opacity: cat.active ? 1 : 0.65,
+                      },
+                    ]}
+                  >
+                    <View style={{ flex: 1, minWidth: 160 }}>
+                      <Text style={{ color: theme.text, fontWeight: '800', fontSize: fs(12.5) }}>
+                        {cat.name} ({cat.code})
+                      </Text>
+                      <Text style={{ color: theme.textSecondary, fontSize: fs(11), marginTop: 2 }}>
+                        slug: {cat.slug} • Público: {cat.targetAudience}
+                      </Text>
+                      {Boolean(cat.description) && (
+                        <Text style={{ color: theme.textMuted, fontSize: fs(10.5), marginTop: 2 }}>
+                          {cat.description}
+                        </Text>
+                      )}
+                    </View>
+                    {isAdmin && (
+                      <TouchableOpacity
+                        style={[
+                          styles.switchProfileBtn,
+                          {
+                            backgroundColor: cat.active ? theme.surfaceMint : theme.warningSoft,
+                            borderColor: cat.active ? theme.primaryBorder : theme.warningBorder,
+                          },
+                        ]}
+                        onPress={() => handleToggleCategoryActive(cat)}
+                      >
+                        <Text
+                          style={{
+                            color: cat.active ? theme.primaryDark : theme.warning,
+                            fontWeight: '700',
+                            fontSize: fs(10.5),
+                          }}
+                        >
+                          {cat.active ? 'Ativa ✓' : 'Inativa'}
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                ))}
+              </View>
+            )}
+          </View>
+
+          {/* Coluna Direita: Parâmetros Gerais do Sistema */}
+          <View
+            style={[
+              styles.rightCard,
+              !isWide && styles.fullWidth,
+              {
+                backgroundColor: theme.surface,
+                borderColor: theme.border,
+                padding: cardPadding,
+              },
+            ]}
+          >
+            <View style={styles.headerRow}>
+              <View style={styles.auditTitleRow}>
+                <ActivityIcon size={18} color={theme.primary} />
+                <Text style={[styles.cardTitle, { color: theme.text, fontSize: isMobile ? fs(15.5) : fs(17) }]}>
+                  Parâmetros Gerais do Sistema
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.auditList}>
+              {systemSettings.map((s) => (
+                <View
+                  key={s.settingKey}
+                  style={[
+                    styles.auditItem,
+                    { backgroundColor: theme.bg, borderColor: theme.borderNeutral },
+                  ]}
+                >
+                  <Text style={{ color: theme.primaryDark, fontWeight: '800', fontSize: fs(11.5) }}>
+                    {s.settingKey} ({s.valueType})
+                  </Text>
+                  <Text style={{ color: theme.textSecondary, fontSize: fs(10.5), marginTop: 2, marginBottom: 6 }}>
+                    {s.description}
+                  </Text>
+                  <View style={styles.quickFormRow}>
+                    <TextInput
+                      editable={isAdmin}
+                      style={[
+                        styles.formInput,
+                        {
+                          minWidth: 110,
+                          backgroundColor: theme.surface,
+                          borderColor: theme.borderNeutral,
+                          color: theme.text,
+                          fontSize: fs(12),
+                        },
+                      ]}
+                      value={editingSettings[s.settingKey] ?? s.settingValue}
+                      onChangeText={(val) =>
+                        setEditingSettings((prev) => ({ ...prev, [s.settingKey]: val }))
+                      }
+                    />
+                    {isAdmin && (
+                      <TouchableOpacity
+                        style={[styles.addBtn, { backgroundColor: theme.primary }]}
+                        disabled={savingSettingKey === s.settingKey}
+                        onPress={() => handleSaveSystemSetting(s.settingKey)}
+                      >
+                        <Text style={{ color: '#FFFFFF', fontWeight: '800', fontSize: fs(11) }}>
+                          {savingSettingKey === s.settingKey ? '...' : 'Salvar'}
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                </View>
+              ))}
+            </View>
+          </View>
+        </View>
+      )}
+
+      {/* SUB-ABA 4: INCIDENTES !EMG & PLATAFORMA MÃE (RF19 / RF22 / RF23) */}
+      {activeSubTab === 'INCIDENTS_MOTHER' && (
+        <View
+          style={[
+            styles.grid,
+            !isWide && styles.gridStacked,
+            { gap: sectionGap },
+          ]}
+        >
+          {/* Coluna Esquerda: Incidentes de Segurança !EMG */}
+          <View
+            style={[
+              styles.leftCard,
+              !isWide && styles.fullWidth,
+              {
+                backgroundColor: theme.surface,
+                borderColor: theme.border,
+                padding: cardPadding,
+              },
+            ]}
+          >
+            <View style={styles.headerRow}>
+              <View style={styles.auditTitleRow}>
+                <ShieldAlertIcon size={18} color={theme.danger} />
+                <Text style={[styles.cardTitle, { color: theme.text, fontSize: isMobile ? fs(15.5) : fs(17) }]}>
+                  Incidentes !EMG & Segurança (RF22)
+                </Text>
+              </View>
+
+              <View style={styles.headerBadgesRow}>
+                <TouchableOpacity
+                  style={[
+                    styles.editOwnBtn,
+                    {
+                      backgroundColor: unresolvedOnly ? theme.warningSoft : theme.surfaceMuted,
+                      borderColor: unresolvedOnly ? theme.warningBorder : theme.borderNeutral,
+                    },
+                  ]}
+                  onPress={() => setUnresolvedOnly((v) => !v)}
+                >
+                  <Text
+                    style={{
+                      color: unresolvedOnly ? theme.warning : theme.textSecondary,
+                      fontWeight: '700',
+                      fontSize: fs(10.5),
+                    }}
+                  >
+                    {unresolvedOnly ? 'Somente Pendentes' : 'Todos Incidentes'}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={loadIncidentsAndMotherLogs}>
+                  <RefreshIcon size={14} color={theme.primaryDark} />
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {incidentsFeedback && (
+              <View
+                style={[
+                  styles.feedbackBanner,
+                  { backgroundColor: theme.surfaceMint, borderColor: theme.primaryBorder },
+                ]}
+              >
+                <Text style={{ color: theme.primaryDark, fontWeight: '700', fontSize: fs(11.5) }}>
+                  {incidentsFeedback}
+                </Text>
+              </View>
+            )}
+
+            {!isCoachOrAdmin ? (
+              <View
+                style={[
+                  styles.rbacNotice,
+                  { backgroundColor: theme.surfaceMuted, borderColor: theme.borderNeutral },
+                ]}
+              >
+                <Text style={{ color: theme.textSecondary, fontSize: fs(11.5), lineHeight: 17 }}>
+                  🔒 RBAC Ativo: Faça login como TREINADOR ou ADMIN para visualizar e resolver incidentes de parada segura (!EMG) e consultar recibos da Plataforma Mãe.
+                </Text>
+              </View>
+            ) : isLoadingIncidents ? (
+              <ActivityIndicator color={theme.primary} style={{ marginVertical: 20 }} />
+            ) : incidents.length === 0 ? (
+              <Text style={{ color: theme.textSecondary, fontSize: fs(12), paddingVertical: 12 }}>
+                Nenhum incidente de segurança registrado para este filtro.
+              </Text>
+            ) : (
+              <View style={styles.auditList}>
+                {incidents.map((inc) => (
+                  <View
+                    key={inc.id}
+                    style={[
+                      styles.auditItem,
+                      {
+                        backgroundColor: theme.bg,
+                        borderColor: inc.resolved ? theme.primaryBorder : theme.dangerBorder,
+                      },
+                    ]}
+                  >
+                    <View style={styles.auditItemTop}>
+                      <Text style={{ color: theme.text, fontWeight: '800', fontSize: fs(12), flex: 1 }}>
+                        #{inc.id} • {inc.incidentType} ({inc.source})
+                      </Text>
+                      <View
+                        style={[
+                          styles.auditTag,
+                          {
+                            backgroundColor: inc.resolved
+                              ? theme.surfaceMint
+                              : theme.dangerSoft,
+                          },
+                        ]}
+                      >
+                        <Text
+                          style={{
+                            color: inc.resolved ? theme.primaryDark : theme.danger,
+                            fontWeight: '800',
+                            fontSize: fs(10),
+                          }}
+                        >
+                          {inc.resolved ? 'RESOLVIDO ✓' : 'PENDENTE'}
+                        </Text>
+                      </View>
+                    </View>
+                    <Text style={{ color: theme.textSecondary, fontSize: fs(11), marginTop: 4 }}>
+                      {inc.reason}
+                    </Text>
+                    <Text style={{ color: theme.textMuted, fontSize: fs(10), marginTop: 3 }}>
+                      Dispositivo: {inc.deviceCode || 'N/D'} • Operador: {inc.userName || 'Sistema'} •{' '}
+                      {new Date(inc.createdAt).toLocaleString('pt-BR')}
+                    </Text>
+                    {!inc.resolved && (
+                      <TouchableOpacity
+                        style={[
+                          styles.switchProfileBtn,
+                          {
+                            marginTop: 8,
+                            alignSelf: 'flex-start',
+                            backgroundColor: theme.primary,
+                            borderColor: theme.primaryDark,
+                          },
+                        ]}
+                        onPress={() => handleResolveIncident(inc.id)}
+                      >
+                        <Text style={{ color: '#FFFFFF', fontWeight: '800', fontSize: fs(11) }}>
+                          ✓ Marcar como Resolvido
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                ))}
+              </View>
+            )}
+          </View>
+
+          {/* Coluna Direita: Recibos da Plataforma Mãe (RF19) */}
+          <View
+            style={[
+              styles.rightCard,
+              !isWide && styles.fullWidth,
+              {
+                backgroundColor: theme.surface,
+                borderColor: theme.border,
+                padding: cardPadding,
+              },
+            ]}
+          >
+            <View style={styles.headerRow}>
+              <View style={styles.auditTitleRow}>
+                <CheckCircleIcon size={18} color={theme.primary} />
+                <Text style={[styles.cardTitle, { color: theme.text, fontSize: isMobile ? fs(15.5) : fs(17) }]}>
+                  Recibos Plataforma Mãe (RF19)
+                </Text>
+              </View>
+            </View>
+
+            {!isCoachOrAdmin ? (
+              <Text style={{ color: theme.textSecondary, fontSize: fs(11.5) }}>
+                Acesso restrito a Treinadores e Administradores.
+              </Text>
+            ) : (
+              <View style={styles.auditList}>
+                {motherLogs.length === 0 ? (
+                  <Text style={{ color: theme.textSecondary, fontSize: fs(12) }}>
+                    Nenhum recibo de sincronização registrado ainda.
+                  </Text>
+                ) : (
+                  motherLogs.map((log) => (
+                    <View
+                      key={log.id}
+                      style={[
+                        styles.auditItem,
+                        { backgroundColor: theme.bg, borderColor: theme.borderNeutral },
+                      ]}
+                    >
+                      <View style={styles.auditItemTop}>
+                        <Text style={{ color: theme.primaryDark, fontWeight: '800', fontSize: fs(11.5), flex: 1 }}>
+                          {log.receiptId}
+                        </Text>
+                        <View style={[styles.auditTag, { backgroundColor: theme.surfaceMint }]}>
+                          <Text style={{ color: theme.primaryDark, fontWeight: '800', fontSize: fs(9.5) }}>
+                            {log.status} ({log.mode})
+                          </Text>
+                        </View>
+                      </View>
+                      <Text style={{ color: theme.textSecondary, fontSize: fs(10.5), marginTop: 3 }}>
+                        {log.direction} • Entidade: {log.entityId} • Telemetria LGPD:{' '}
+                        {log.telemetryForwarded ? 'SIM' : 'NÃO'}
+                      </Text>
+                      <Text style={{ color: theme.textMuted, fontSize: fs(10), marginTop: 2 }}>
+                        {new Date(log.createdAt).toLocaleString('pt-BR')}
+                      </Text>
+                    </View>
+                  ))
+                )}
+              </View>
+            )}
+          </View>
+        </View>
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  subTabsBar: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    borderRadius: 16,
+    borderWidth: 1,
+    width: '100%',
+  },
+  subTabPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 13,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
   grid: {
     flexDirection: 'row',
     alignItems: 'flex-start',

@@ -14,14 +14,17 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import {
+  BallOscillationMode,
   DrillDefinition,
   DrillCategory,
   DRILL_CATEGORY_LABELS,
   DrillDifficulty,
+  DrillScoringRules,
   DrillStatus,
   DrillStep,
   DrillLicenseType,
   DrillRemunerationModel,
+  DrillVersionRecord,
   TARGET_LABELS,
   TARGET_TACTICAL_NAMES,
   validateDrillDefinition,
@@ -54,6 +57,14 @@ const SPIN_OPTIONS: Array<'FLAT' | 'TOPSPIN' | 'BACKSPIN'> = [
   'BACKSPIN',
 ];
 
+const OSCILLATION_OPTIONS: BallOscillationMode[] = [
+  'NONE',
+  'HORIZONTAL',
+  'VERTICAL',
+  'RANDOM',
+  'TWO_LINE',
+];
+
 const STATUS_BADGE_MAP: Record<
   DrillStatus,
   { label: string; isPublished?: boolean }
@@ -75,6 +86,9 @@ export const DrillEditorView: React.FC<DrillEditorViewProps> = ({
   const { width, isMobile, cardPadding, sectionGap } = useResponsive();
   const { user } = useAuth();
   const isWide = width >= 980;
+  const canPublishOrEdit = Boolean(
+    user && (user.role === 'TREINADOR' || user.role === 'ADMIN')
+  );
 
   const [editingId, setEditingId] = useState<string>(
     initialDrill?.id || `drill-custom-${Date.now().toString(36)}`
@@ -156,6 +170,27 @@ export const DrillEditorView: React.FC<DrillEditorViewProps> = ({
     String(initialDrill?.marketplace?.suggestedPriceBrl ?? 29.9)
   );
 
+  // Regras de Pontuação e Metas (RF10, RF14)
+  const [basePointsInput, setBasePointsInput] = useState<string>(
+    String(initialDrill?.scoringRules?.basePoints ?? 100)
+  );
+  const [seriesCountInput, setSeriesCountInput] = useState<string>(
+    String(initialDrill?.scoringRules?.seriesCount ?? 1)
+  );
+  const [targetScoreGoalInput, setTargetScoreGoalInput] = useState<string>(
+    String(initialDrill?.scoringRules?.targetScoreGoal ?? 1000)
+  );
+  const [minAccuracyPercentInput, setMinAccuracyPercentInput] = useState<string>(
+    String(initialDrill?.scoringRules?.minAccuracyPercent ?? 60)
+  );
+  const [wrongTargetPenaltyInput, setWrongTargetPenaltyInput] = useState<string>(
+    String(initialDrill?.scoringRules?.wrongTargetPenalty ?? -30)
+  );
+
+  // Histórico oficial de versões na API (RF16, RF18)
+  const [versionHistory, setVersionHistory] = useState<DrillVersionRecord[]>([]);
+  const [loadingVersions, setLoadingVersions] = useState<boolean>(false);
+
   // Simulador pré-publicação (RF15)
   const [isSimulating, setIsSimulating] = useState<boolean>(false);
   const [simStepIdx, setSimStepIdx] = useState<number>(-1);
@@ -167,6 +202,22 @@ export const DrillEditorView: React.FC<DrillEditorViewProps> = ({
     isError?: boolean;
   } | null>(null);
 
+  const fetchVersions = async (drillId: string) => {
+    if (!drillId || drillId.startsWith('drill-custom-')) {
+      setVersionHistory([]);
+      return;
+    }
+    setLoadingVersions(true);
+    try {
+      const list = await api.getDrillVersions(drillId);
+      setVersionHistory(Array.isArray(list) ? list : []);
+    } catch {
+      setVersionHistory([]);
+    } finally {
+      setLoadingVersions(false);
+    }
+  };
+
   useEffect(() => {
     if (initialDrill) {
       loadDrillIntoForm(initialDrill);
@@ -175,6 +226,10 @@ export const DrillEditorView: React.FC<DrillEditorViewProps> = ({
       if (simTimerRef.current) clearInterval(simTimerRef.current);
     };
   }, [initialDrill]);
+
+  useEffect(() => {
+    fetchVersions(editingId);
+  }, [editingId]);
 
   const loadDrillIntoForm = (d: DrillDefinition) => {
     if (simTimerRef.current) clearInterval(simTimerRef.current);
@@ -191,6 +246,11 @@ export const DrillEditorView: React.FC<DrillEditorViewProps> = ({
     setStatus(d.status || 'PUBLISHED');
     setAuthorName(d.authorName || user?.name || 'Carlos Treinador');
     setSteps(d.steps.map((s, i) => ({ ...s, stepNumber: i + 1 })));
+    setBasePointsInput(String(d.scoringRules?.basePoints ?? 100));
+    setSeriesCountInput(String(d.scoringRules?.seriesCount ?? 1));
+    setTargetScoreGoalInput(String(d.scoringRules?.targetScoreGoal ?? 1000));
+    setMinAccuracyPercentInput(String(d.scoringRules?.minAccuracyPercent ?? 60));
+    setWrongTargetPenaltyInput(String(d.scoringRules?.wrongTargetPenalty ?? -30));
     setInstructionsText(
       (
         d.preparation?.instructions || [
@@ -231,11 +291,57 @@ export const DrillEditorView: React.FC<DrillEditorViewProps> = ({
     setVersion('1.0.0');
     setStatus('DRAFT');
     setAuthorName(user?.name || 'Carlos Treinador');
+    setBasePointsInput('100');
+    setSeriesCountInput('1');
+    setTargetScoreGoalInput('1000');
+    setMinAccuracyPercentInput('65');
+    setWrongTargetPenaltyInput('-30');
+    setVersionHistory([]);
     setSteps([
-      { stepNumber: 1, targetId: 5, durationMs: 3000, ballSpeedKmh: 85, spinType: 'FLAT' },
-      { stepNumber: 2, targetId: 1, durationMs: 2800, ballSpeedKmh: 90, spinType: 'TOPSPIN' },
-      { stepNumber: 3, targetId: 2, durationMs: 2800, ballSpeedKmh: 90, spinType: 'TOPSPIN' },
-      { stepNumber: 4, targetId: 4, durationMs: 2500, ballSpeedKmh: 95, spinType: 'FLAT' },
+      {
+        stepNumber: 1,
+        targetId: 5,
+        durationMs: 3000,
+        ballSpeedKmh: 85,
+        spinType: 'FLAT',
+        elevationDeg: 18,
+        horizontalAngleDeg: 0,
+        feedIntervalMs: 1100,
+        oscillationMode: 'NONE',
+      },
+      {
+        stepNumber: 2,
+        targetId: 1,
+        durationMs: 2800,
+        ballSpeedKmh: 90,
+        spinType: 'TOPSPIN',
+        elevationDeg: 16,
+        horizontalAngleDeg: -10,
+        feedIntervalMs: 1100,
+        oscillationMode: 'HORIZONTAL',
+      },
+      {
+        stepNumber: 3,
+        targetId: 2,
+        durationMs: 2800,
+        ballSpeedKmh: 90,
+        spinType: 'TOPSPIN',
+        elevationDeg: 16,
+        horizontalAngleDeg: 10,
+        feedIntervalMs: 1100,
+        oscillationMode: 'HORIZONTAL',
+      },
+      {
+        stepNumber: 4,
+        targetId: 4,
+        durationMs: 2500,
+        ballSpeedKmh: 95,
+        spinType: 'FLAT',
+        elevationDeg: 14,
+        horizontalAngleDeg: 15,
+        feedIntervalMs: 900,
+        oscillationMode: 'TWO_LINE',
+      },
     ]);
     setFeedbackBanner({
       text: 'Novo rascunho v1.0.0 iniciado. Configure os passos, simule e publique!',
@@ -277,6 +383,26 @@ export const DrillEditorView: React.FC<DrillEditorViewProps> = ({
     );
   };
 
+  const parsedBasePoints = parseInt(basePointsInput, 10);
+  const parsedSeriesCount = parseInt(seriesCountInput, 10);
+  const parsedTargetScoreGoal = parseInt(targetScoreGoalInput, 10);
+  const parsedMinAccuracy = parseInt(minAccuracyPercentInput, 10);
+  const parsedWrongPenalty = parseInt(wrongTargetPenaltyInput, 10);
+
+  const currentScoringRules: DrillScoringRules = {
+    basePoints: Number.isFinite(parsedBasePoints) ? parsedBasePoints : 100,
+    timeBonusWeight: 1.0,
+    wrongTargetPenalty: Number.isFinite(parsedWrongPenalty) ? parsedWrongPenalty : -30,
+    kidsWrongTargetPenalty: 0,
+    maxStreakMultiplier: 1.5,
+    seriesCount: Math.max(1, Math.min(10, Number.isFinite(parsedSeriesCount) ? parsedSeriesCount : 1)),
+    targetScoreGoal: Math.max(0, Number.isFinite(parsedTargetScoreGoal) ? parsedTargetScoreGoal : 1000),
+    minAccuracyPercent: Number.isFinite(parsedMinAccuracy) ? parsedMinAccuracy : 60,
+    completionCriteria: isKidsAdapted
+      ? 'Modo Kids (RN09): +50% de janela temporal e incentivo sem penalidade.'
+      : `Atingir ${Math.max(0, Number.isFinite(parsedTargetScoreGoal) ? parsedTargetScoreGoal : 1000)} pts com precisão mínima de ${Number.isFinite(parsedMinAccuracy) ? parsedMinAccuracy : 60}%.`,
+  };
+
   // Validação formal em tempo real (RF15)
   const validation = validateDrillDefinition({
     id: editingId,
@@ -287,6 +413,7 @@ export const DrillEditorView: React.FC<DrillEditorViewProps> = ({
     isKidsAdapted,
     version,
     authorName,
+    scoringRules: currentScoringRules,
     steps,
   });
 
@@ -332,6 +459,13 @@ export const DrillEditorView: React.FC<DrillEditorViewProps> = ({
     bumpType?: 'PATCH' | 'MINOR' | 'MAJOR'
   ) => {
     setFeedbackBanner(null);
+    if (!canPublishOrEdit) {
+      setFeedbackBanner({
+        text: 'Acesso restrito (RBAC): faça login com perfil TREINADOR ou ADMIN na aba 6. Conta para salvar ou publicar treinos no catálogo.',
+        isError: true,
+      });
+      return;
+    }
     if (!validation.valid) {
       setFeedbackBanner({
         text: `Validação falhou: ${validation.errors.join(' ')}`,
@@ -361,6 +495,7 @@ export const DrillEditorView: React.FC<DrillEditorViewProps> = ({
         version: nextVersion,
         authorName: authorName.trim(),
         status: targetStatus,
+        scoringRules: currentScoringRules,
         steps: steps.map((s, i) => ({ ...s, stepNumber: i + 1 })),
         preparation: {
           instructions: instructionsText
@@ -369,7 +504,7 @@ export const DrillEditorView: React.FC<DrillEditorViewProps> = ({
             .filter(Boolean),
           scoringRulesSummary: isKidsAdapted
             ? 'Modo Kids (RN09): +50% de janela temporal automática e zero penalidade.'
-            : 'Regra RN03: Pontuação por tempo restante, multiplicador de streak (até 1.5x) e bônus de força ADC.',
+            : `Regra RN03: Base ${currentScoringRules.basePoints} pts, ${currentScoringRules.seriesCount} série(s), meta ${currentScoringRules.targetScoreGoal} pts (${currentScoringRules.minAccuracyPercent}% precisão), erro ${currentScoringRules.wrongTargetPenalty} pts.`,
           equipmentRequired: isKidsAdapted
             ? ['Raquete Kids', 'Bolas Low-Compression', '5 Módulos Piezo + LEDs']
             : ['Raquete Padrão', '5 Sensores Piezoelétricos Calibrados', 'Simulador/Lançadora Spinshot'],
@@ -391,9 +526,11 @@ export const DrillEditorView: React.FC<DrillEditorViewProps> = ({
       const { drill: saved, syncedWithApi } = await api.saveDrill(draftPayload);
       const { drills: refreshedList } = await api.listDrills();
 
+      setEditingId(saved.id);
       setVersion(saved.version);
       setStatus(saved.status || targetStatus);
       onDrillSaved(saved, refreshedList);
+      await fetchVersions(saved.id);
 
       setFeedbackBanner({
         text: `✓ Treino "${saved.title}" v${saved.version} [${targetStatus}] salvo ${
@@ -497,6 +634,22 @@ export const DrillEditorView: React.FC<DrillEditorViewProps> = ({
             );
           })}
         </View>
+
+        {!canPublishOrEdit && (
+          <View
+            style={[
+              styles.bannerBox,
+              {
+                backgroundColor: theme.warningSoft,
+                borderColor: theme.warningBorder,
+              },
+            ]}
+          >
+            <Text style={{ color: theme.warning, fontWeight: '700', fontSize: fs(11.5) }}>
+              🔒 Modo Somente Leitura / Simulação (RBAC RF01): Faça login como TREINADOR ou ADMIN na aba 6. Conta para salvar ou publicar treinos no catálogo oficial.
+            </Text>
+          </View>
+        )}
 
         {feedbackBanner && (
           <View
@@ -794,6 +947,84 @@ export const DrillEditorView: React.FC<DrillEditorViewProps> = ({
                     </Text>
                   </TouchableOpacity>
 
+                  {/* Elevação (°) */}
+                  <TouchableOpacity
+                    style={[
+                      styles.stepParamPill,
+                      { backgroundColor: theme.surface, borderColor: theme.borderNeutral },
+                    ]}
+                    onPress={() => {
+                      const elevs = [10, 15, 20, 25, 35];
+                      const curr = st.elevationDeg ?? 18;
+                      const nextElev =
+                        elevs[(elevs.indexOf(curr) + 1) % elevs.length] ?? 20;
+                      handleUpdateStep(idx, { elevationDeg: nextElev });
+                    }}
+                  >
+                    <Text style={{ color: theme.text, fontWeight: '700', fontSize: fs(10) }}>
+                      ↗ {st.elevationDeg ?? 18}°
+                    </Text>
+                  </TouchableOpacity>
+
+                  {/* Ângulo Horizontal (°) */}
+                  <TouchableOpacity
+                    style={[
+                      styles.stepParamPill,
+                      { backgroundColor: theme.surface, borderColor: theme.borderNeutral },
+                    ]}
+                    onPress={() => {
+                      const angles = [-20, -10, 0, 10, 20];
+                      const curr = st.horizontalAngleDeg ?? 0;
+                      const nextAng =
+                        angles[(angles.indexOf(curr) + 1) % angles.length] ?? 0;
+                      handleUpdateStep(idx, { horizontalAngleDeg: nextAng });
+                    }}
+                  >
+                    <Text style={{ color: theme.text, fontWeight: '700', fontSize: fs(10) }}>
+                      ↔ {(st.horizontalAngleDeg ?? 0) > 0 ? `+${st.horizontalAngleDeg}` : st.horizontalAngleDeg ?? 0}°
+                    </Text>
+                  </TouchableOpacity>
+
+                  {/* Intervalo de Alimentação (ms) */}
+                  <TouchableOpacity
+                    style={[
+                      styles.stepParamPill,
+                      { backgroundColor: theme.surface, borderColor: theme.borderNeutral },
+                    ]}
+                    onPress={() => {
+                      const feeds = [750, 900, 1100, 1400];
+                      const curr = st.feedIntervalMs ?? 1000;
+                      const nextFeed =
+                        feeds[(feeds.indexOf(curr) + 1) % feeds.length] ?? 900;
+                      handleUpdateStep(idx, { feedIntervalMs: nextFeed });
+                    }}
+                  >
+                    <Text style={{ color: theme.textSecondary, fontWeight: '700', fontSize: fs(10) }}>
+                      ⏳ {st.feedIntervalMs ?? 1000}ms
+                    </Text>
+                  </TouchableOpacity>
+
+                  {/* Oscilação Spinshot */}
+                  <TouchableOpacity
+                    style={[
+                      styles.stepParamPill,
+                      { backgroundColor: theme.surface, borderColor: theme.borderNeutral },
+                    ]}
+                    onPress={() => {
+                      const curr = st.oscillationMode || 'NONE';
+                      const nextOsc =
+                        OSCILLATION_OPTIONS[
+                          (OSCILLATION_OPTIONS.indexOf(curr) + 1) %
+                            OSCILLATION_OPTIONS.length
+                        ];
+                      handleUpdateStep(idx, { oscillationMode: nextOsc });
+                    }}
+                  >
+                    <Text style={{ color: theme.primaryDark, fontWeight: '700', fontSize: fs(10) }}>
+                      OSC:{st.oscillationMode || 'NONE'}
+                    </Text>
+                  </TouchableOpacity>
+
                   <TouchableOpacity
                     accessibilityLabel={`Remover passo ${idx + 1}`}
                     onPress={() => handleRemoveStep(idx)}
@@ -803,6 +1034,130 @@ export const DrillEditorView: React.FC<DrillEditorViewProps> = ({
                 </View>
               );
             })}
+          </View>
+
+          {/* Regras de Pontuação, Séries e Metas (RF10, RF14) */}
+          <View
+            style={[
+              styles.mktSection,
+              { backgroundColor: theme.bg, borderColor: theme.primaryBorder },
+            ]}
+          >
+            <Text style={{ color: theme.primaryDark, fontWeight: '800', fontSize: fs(12) }}>
+              🏆 Regras de Pontuação, Séries & Metas (RF10 / RF14)
+            </Text>
+
+            <View style={[styles.inlineRow, { marginTop: 8, flexWrap: 'wrap' }]}>
+              <View style={{ flex: 1, minWidth: 110 }}>
+                <Text style={{ color: theme.textSecondary, fontWeight: '700', fontSize: fs(10), marginBottom: 3 }}>
+                  Pontos Base
+                </Text>
+                <TextInput
+                  style={[
+                    styles.input,
+                    {
+                      backgroundColor: theme.surface,
+                      borderColor: theme.borderNeutral,
+                      color: theme.text,
+                      fontSize: fs(11),
+                    },
+                  ]}
+                  value={basePointsInput}
+                  onChangeText={setBasePointsInput}
+                  keyboardType="numeric"
+                  placeholder="100"
+                  placeholderTextColor={theme.textMuted}
+                />
+              </View>
+
+              <View style={{ flex: 1, minWidth: 95 }}>
+                <Text style={{ color: theme.textSecondary, fontWeight: '700', fontSize: fs(10), marginBottom: 3 }}>
+                  Séries
+                </Text>
+                <TextInput
+                  style={[
+                    styles.input,
+                    {
+                      backgroundColor: theme.surface,
+                      borderColor: theme.borderNeutral,
+                      color: theme.text,
+                      fontSize: fs(11),
+                    },
+                  ]}
+                  value={seriesCountInput}
+                  onChangeText={setSeriesCountInput}
+                  keyboardType="numeric"
+                  placeholder="1"
+                  placeholderTextColor={theme.textMuted}
+                />
+              </View>
+
+              <View style={{ flex: 1, minWidth: 115 }}>
+                <Text style={{ color: theme.textSecondary, fontWeight: '700', fontSize: fs(10), marginBottom: 3 }}>
+                  Meta Pontuação
+                </Text>
+                <TextInput
+                  style={[
+                    styles.input,
+                    {
+                      backgroundColor: theme.surface,
+                      borderColor: theme.borderNeutral,
+                      color: theme.text,
+                      fontSize: fs(11),
+                    },
+                  ]}
+                  value={targetScoreGoalInput}
+                  onChangeText={setTargetScoreGoalInput}
+                  keyboardType="numeric"
+                  placeholder="1000"
+                  placeholderTextColor={theme.textMuted}
+                />
+              </View>
+
+              <View style={{ flex: 1, minWidth: 110 }}>
+                <Text style={{ color: theme.textSecondary, fontWeight: '700', fontSize: fs(10), marginBottom: 3 }}>
+                  Precisão Mín. (%)
+                </Text>
+                <TextInput
+                  style={[
+                    styles.input,
+                    {
+                      backgroundColor: theme.surface,
+                      borderColor: theme.borderNeutral,
+                      color: theme.text,
+                      fontSize: fs(11),
+                    },
+                  ]}
+                  value={minAccuracyPercentInput}
+                  onChangeText={setMinAccuracyPercentInput}
+                  keyboardType="numeric"
+                  placeholder="60"
+                  placeholderTextColor={theme.textMuted}
+                />
+              </View>
+
+              <View style={{ flex: 1, minWidth: 115 }}>
+                <Text style={{ color: theme.textSecondary, fontWeight: '700', fontSize: fs(10), marginBottom: 3 }}>
+                  Penalidade Erro
+                </Text>
+                <TextInput
+                  style={[
+                    styles.input,
+                    {
+                      backgroundColor: theme.surface,
+                      borderColor: theme.borderNeutral,
+                      color: theme.text,
+                      fontSize: fs(11),
+                    },
+                  ]}
+                  value={wrongTargetPenaltyInput}
+                  onChangeText={setWrongTargetPenaltyInput}
+                  keyboardType="numbers-and-punctuation"
+                  placeholder="-30"
+                  placeholderTextColor={theme.textMuted}
+                />
+              </View>
+            </View>
           </View>
 
           {/* Metadados de Marketplace & Licenciamento Futuro (RF20) */}
@@ -1144,48 +1499,67 @@ export const DrillEditorView: React.FC<DrillEditorViewProps> = ({
         />
 
         <View style={styles.publishActionsCol}>
-          <View style={styles.inlineRow}>
-            <TouchableOpacity
-              style={[
-                styles.secondaryPublishBtn,
-                { backgroundColor: theme.surfaceMuted, borderColor: theme.borderNeutral },
-              ]}
-              disabled={isSaving}
-              onPress={() => handlePersistDrill('DRAFT')}
-            >
-              <Text style={{ color: theme.text, fontWeight: '700', fontSize: fs(11) }}>
-                Salvar Rascunho
-              </Text>
-            </TouchableOpacity>
+          {canPublishOrEdit ? (
+            <>
+              <View style={styles.inlineRow}>
+                <TouchableOpacity
+                  style={[
+                    styles.secondaryPublishBtn,
+                    { backgroundColor: theme.surfaceMuted, borderColor: theme.borderNeutral },
+                  ]}
+                  disabled={isSaving}
+                  onPress={() => handlePersistDrill('DRAFT')}
+                >
+                  <Text style={{ color: theme.text, fontWeight: '700', fontSize: fs(11) }}>
+                    Salvar Rascunho
+                  </Text>
+                </TouchableOpacity>
 
-            <TouchableOpacity
-              style={[
-                styles.secondaryPublishBtn,
-                { backgroundColor: theme.warningSoft, borderColor: theme.warningBorder },
-              ]}
-              disabled={isSaving}
-              onPress={() => handlePersistDrill('REVIEW', 'PATCH')}
-            >
-              <Text style={{ color: theme.warning, fontWeight: '800', fontSize: fs(11) }}>
-                Enviar p/ Revisão (+Patch)
-              </Text>
-            </TouchableOpacity>
-          </View>
+                <TouchableOpacity
+                  style={[
+                    styles.secondaryPublishBtn,
+                    { backgroundColor: theme.warningSoft, borderColor: theme.warningBorder },
+                  ]}
+                  disabled={isSaving}
+                  onPress={() => handlePersistDrill('REVIEW', 'PATCH')}
+                >
+                  <Text style={{ color: theme.warning, fontWeight: '800', fontSize: fs(11) }}>
+                    Enviar p/ Revisão (+Patch)
+                  </Text>
+                </TouchableOpacity>
+              </View>
 
-          <TouchableOpacity
-            accessibilityRole="button"
-            style={[styles.primaryPublishBtn, { backgroundColor: theme.primary }]}
-            disabled={isSaving}
-            onPress={() => handlePersistDrill('PUBLISHED', 'MINOR')}
-          >
-            {isSaving ? (
-              <ActivityIndicator color="#FFFFFF" />
-            ) : (
-              <Text style={{ color: '#FFFFFF', fontWeight: '800', fontSize: fs(13) }}>
-                ✓ Publicar Versão no Catálogo & API (RF16 / RF18)
+              <TouchableOpacity
+                accessibilityRole="button"
+                style={[styles.primaryPublishBtn, { backgroundColor: theme.primary }]}
+                disabled={isSaving}
+                onPress={() => handlePersistDrill('PUBLISHED', 'MINOR')}
+              >
+                {isSaving ? (
+                  <ActivityIndicator color="#FFFFFF" />
+                ) : (
+                  <Text style={{ color: '#FFFFFF', fontWeight: '800', fontSize: fs(13) }}>
+                    ✓ Publicar Versão no Catálogo & API (RF16 / RF18)
+                  </Text>
+                )}
+              </TouchableOpacity>
+            </>
+          ) : (
+            <View
+              style={[
+                styles.bannerBox,
+                {
+                  backgroundColor: theme.warningSoft,
+                  borderColor: theme.warningBorder,
+                  marginBottom: 0,
+                },
+              ]}
+            >
+              <Text style={{ color: theme.warning, fontWeight: '700', fontSize: fs(11) }}>
+                Publicação e gravação no catálogo oficial bloqueadas (RBAC): entre como TREINADOR ou ADMIN para salvar rascunhos ou publicar versões.
               </Text>
-            )}
-          </TouchableOpacity>
+            </View>
+          )}
 
           <TouchableOpacity
             accessibilityRole="button"
@@ -1204,6 +1578,7 @@ export const DrillEditorView: React.FC<DrillEditorViewProps> = ({
                 version,
                 authorName,
                 status,
+                scoringRules: currentScoringRules,
                 steps,
               };
               onPlayDrillInArena(playable);
@@ -1216,39 +1591,62 @@ export const DrillEditorView: React.FC<DrillEditorViewProps> = ({
           </TouchableOpacity>
         </View>
 
-        {/* Histórico de Alterações / Changelog (RF16) */}
+        {/* Histórico Oficial de Versões Imutáveis (RF16 / RF18) */}
         <Text style={[styles.label, { color: theme.text, fontSize: fs(12), marginTop: 14 }]}>
           Histórico de Versões Publicadas (RF16)
         </Text>
-        <View style={styles.changelogList}>
-          {(
-            currentDrillObj?.changelog || [
-              {
-                version,
-                date: new Date().toISOString().split('T')[0],
-                author: authorName,
-                notes: changelogNote,
-              },
-            ]
-          )
-            .slice(0, 4)
-            .map((entry, i) => (
-              <View
-                key={i}
-                style={[
-                  styles.changelogItem,
-                  { backgroundColor: theme.bg, borderColor: theme.borderNeutral },
-                ]}
-              >
-                <Text style={{ color: theme.primaryDark, fontWeight: '800', fontSize: fs(11) }}>
-                  v{entry.version} • {entry.date} • {entry.author}
-                </Text>
-                <Text style={{ color: theme.textSecondary, fontSize: fs(11), marginTop: 2 }}>
-                  {entry.notes}
-                </Text>
-              </View>
-            ))}
-        </View>
+        {loadingVersions ? (
+          <ActivityIndicator color={theme.primary} style={{ marginVertical: 10 }} />
+        ) : (
+          <View style={styles.changelogList}>
+            {versionHistory.length > 0
+              ? versionHistory.slice(0, 6).map((ver) => (
+                  <View
+                    key={ver.id}
+                    style={[
+                      styles.changelogItem,
+                      { backgroundColor: theme.bg, borderColor: theme.borderNeutral },
+                    ]}
+                  >
+                    <Text style={{ color: theme.primaryDark, fontWeight: '800', fontSize: fs(11) }}>
+                      v{ver.version} [{ver.status}] •{' '}
+                      {new Date(ver.publishedAt || ver.createdAt).toLocaleDateString('pt-BR')} •{' '}
+                      {ver.createdByName}
+                    </Text>
+                    <Text style={{ color: theme.textSecondary, fontSize: fs(11), marginTop: 2 }}>
+                      {ver.changelog}
+                    </Text>
+                  </View>
+                ))
+              : (
+                  currentDrillObj?.changelog || [
+                    {
+                      version,
+                      date: new Date().toISOString().split('T')[0],
+                      author: authorName,
+                      notes: changelogNote,
+                    },
+                  ]
+                )
+                  .slice(0, 4)
+                  .map((entry, i) => (
+                    <View
+                      key={i}
+                      style={[
+                        styles.changelogItem,
+                        { backgroundColor: theme.bg, borderColor: theme.borderNeutral },
+                      ]}
+                    >
+                      <Text style={{ color: theme.primaryDark, fontWeight: '800', fontSize: fs(11) }}>
+                        v{entry.version} • {entry.date} • {entry.author}
+                      </Text>
+                      <Text style={{ color: theme.textSecondary, fontSize: fs(11), marginTop: 2 }}>
+                        {entry.notes}
+                      </Text>
+                    </View>
+                  ))}
+          </View>
+        )}
       </View>
     </View>
   );

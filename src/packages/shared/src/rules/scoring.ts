@@ -3,6 +3,8 @@
  * Alinhado com: docs/spec/01-system-requirements.md (RN03 e RN09)
  */
 
+import type { DrillScoringRules } from '../contracts/drills';
+
 export interface ScoreCalculationParams {
   remainingMs: number;
   totalMs: number;
@@ -10,6 +12,7 @@ export interface ScoreCalculationParams {
   adcFifoValue: number; // 0..1023
   isCorrectTarget: boolean;
   isKidsMode?: boolean;
+  rules?: Partial<DrillScoringRules>;
 }
 
 export interface ScoreCalculationResult {
@@ -24,11 +27,12 @@ const P_BASE = 100;
 const WRONG_TARGET_PENALTY = -30;
 
 /**
- * Calcula o multiplicador de streak (1.0 até 1.5x)
+ * Calcula o multiplicador de streak (1.0 até maxMultiplier, padrão 1.5x)
  */
-export function getStreakMultiplier(streak: number): number {
-  const effectiveStreak = Math.min(Math.max(0, streak), 5);
-  return Number((1.0 + 0.1 * effectiveStreak).toFixed(1));
+export function getStreakMultiplier(streak: number, maxMultiplier: number = 1.5): number {
+  const boundedMax = Math.max(1.0, maxMultiplier);
+  const raw = 1.0 + 0.1 * Math.max(0, streak);
+  return Number(Math.min(raw, boundedMax).toFixed(2));
 }
 
 /**
@@ -40,7 +44,7 @@ export function getForceBonus(adcVal: number): number {
 }
 
 /**
- * Implementação da regra RN03 e RN09 para pontuação determinística.
+ * Implementação da regra RN03 e RN09 para pontuação determinística parametrizável.
  */
 export function calculateHitScore(params: ScoreCalculationParams): ScoreCalculationResult {
   const {
@@ -50,11 +54,18 @@ export function calculateHitScore(params: ScoreCalculationParams): ScoreCalculat
     adcFifoValue,
     isCorrectTarget,
     isKidsMode = false,
+    rules,
   } = params;
+
+  const basePoints = rules?.basePoints ?? P_BASE;
+  const timeBonusWeight = rules?.timeBonusWeight ?? 1.0;
+  const maxStreakMultiplier = rules?.maxStreakMultiplier ?? 1.5;
+  const wrongTargetPenalty = rules?.wrongTargetPenalty ?? WRONG_TARGET_PENALTY;
+  const kidsWrongTargetPenalty = rules?.kidsWrongTargetPenalty ?? 0;
 
   if (!isCorrectTarget) {
     return {
-      pointsAdded: isKidsMode ? 0 : WRONG_TARGET_PENALTY,
+      pointsAdded: isKidsMode ? kidsWrongTargetPenalty : wrongTargetPenalty,
       newStreak: 0,
       forceBonus: 0,
       streakMultiplier: 1.0,
@@ -64,12 +75,12 @@ export function calculateHitScore(params: ScoreCalculationParams): ScoreCalculat
 
   // Tempo restante limitado entre 0 e totalMs
   const boundedRemaining = Math.max(0, Math.min(remainingMs, totalMs));
-  const timeBonusFactor = totalMs > 0 ? boundedRemaining / totalMs : 0;
-  const streakMultiplier = getStreakMultiplier(streak);
+  const timeBonusFactor = (totalMs > 0 ? boundedRemaining / totalMs : 0) * timeBonusWeight;
+  const streakMultiplier = getStreakMultiplier(streak, maxStreakMultiplier);
   const forceBonus = getForceBonus(adcFifoValue);
 
-  // P = (P_base * (1 + T_rest/T_total) * M_streak) + B_force
-  const rawPoints = (P_BASE * (1 + timeBonusFactor) * streakMultiplier) + forceBonus;
+  // P = (P_base * (1 + (T_rest/T_total) * peso) * M_streak) + B_force
+  const rawPoints = (basePoints * (1 + timeBonusFactor) * streakMultiplier) + forceBonus;
   const pointsAdded = Math.round(rawPoints);
 
   return {

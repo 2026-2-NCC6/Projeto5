@@ -16,6 +16,7 @@ import {
   DrillDefinition,
   DrillDifficulty,
   DrillCategory,
+  DrillRequiredSensor,
   DRILL_CATEGORY_LABELS,
   DEFAULT_DRILLS,
   TARGET_TACTICAL_NAMES,
@@ -78,10 +79,13 @@ export const DrillCatalogCard: React.FC<DrillCatalogCardProps> = ({
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [audienceFilter, setAudienceFilter] = useState<'ALL' | 'KIDS' | 'PRO'>('ALL');
   const [selectedCategory, setSelectedCategory] = useState<string>('TODAS');
+  const [selectedDifficulty, setSelectedDifficulty] = useState<number | 'ALL'>('ALL');
+  const [maxDurationFilter, setMaxDurationFilter] = useState<number | 'ALL'>('ALL');
+  const [selectedSensorFilter, setSelectedSensorFilter] = useState<DrillRequiredSensor | 'ALL'>('ALL');
   const [showPreparation, setShowPreparation] = useState<boolean>(true);
 
   useEffect(() => {
-    if (Array.isArray(drillsList) && drillsList.length > 0) {
+    if (Array.isArray(drillsList)) {
       setRawDrills(drillsList);
     }
   }, [drillsList]);
@@ -95,7 +99,7 @@ export const DrillCatalogCard: React.FC<DrillCatalogCardProps> = ({
     try {
       const { drills, source } = await api.listDrills();
       if (Array.isArray(drills) && drills.length > 0) {
-        setRawDrills(drills);
+        setRawDrills(drills.filter((d) => !d.status || d.status === 'PUBLISHED'));
         setSourceState(source);
       }
     } catch {
@@ -108,10 +112,34 @@ export const DrillCatalogCard: React.FC<DrillCatalogCardProps> = ({
 
   const filteredDrills = useMemo(() => {
     return rawDrills.filter((drill) => {
+      if (drill.status && drill.status !== 'PUBLISHED') return false;
       if (audienceFilter === 'KIDS' && !drill.isKidsAdapted) return false;
       if (audienceFilter === 'PRO' && drill.isKidsAdapted) return false;
       if (selectedCategory !== 'TODAS' && drill.category !== selectedCategory) {
         return false;
+      }
+      if (selectedDifficulty !== 'ALL' && drill.difficulty !== selectedDifficulty) {
+        return false;
+      }
+      if (maxDurationFilter !== 'ALL') {
+        const drillEstSec =
+          drill.preparation?.estimatedDurationSec ||
+          drill.estimatedDurationSec ||
+          Math.round(drill.steps.reduce((acc, s) => acc + s.durationMs, 0) / 1000) + 3;
+        if (drillEstSec > maxDurationFilter) {
+          return false;
+        }
+      }
+      if (selectedSensorFilter !== 'ALL') {
+        const sensors = drill.requiredSensors || [
+          'PIEZO_TARGETS',
+          'LED_RING',
+          'BUZZER',
+          'BALL_MACHINE_SIM',
+        ];
+        if (!sensors.includes(selectedSensorFilter)) {
+          return false;
+        }
       }
       if (searchTerm.trim()) {
         const q = searchTerm.trim().toLowerCase();
@@ -122,16 +150,30 @@ export const DrillCatalogCard: React.FC<DrillCatalogCardProps> = ({
       }
       return true;
     });
-  }, [rawDrills, audienceFilter, selectedCategory, searchTerm]);
+  }, [
+    rawDrills,
+    audienceFilter,
+    selectedCategory,
+    selectedDifficulty,
+    maxDurationFilter,
+    selectedSensorFilter,
+    searchTerm,
+  ]);
 
   const hasActiveFilters =
     audienceFilter !== 'ALL' ||
     selectedCategory !== 'TODAS' ||
+    selectedDifficulty !== 'ALL' ||
+    maxDurationFilter !== 'ALL' ||
+    selectedSensorFilter !== 'ALL' ||
     searchTerm.trim().length > 0;
 
   const clearFilters = () => {
     setAudienceFilter('ALL');
     setSelectedCategory('TODAS');
+    setSelectedDifficulty('ALL');
+    setMaxDurationFilter('ALL');
+    setSelectedSensorFilter('ALL');
     setSearchTerm('');
   };
 
@@ -329,6 +371,141 @@ export const DrillCatalogCard: React.FC<DrillCatalogCardProps> = ({
                   ]}
                 >
                   {cat.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        {/* Filtro por Dificuldade (1..5) */}
+        <View style={styles.pillsRow}>
+          {(
+            [
+              { key: 'ALL', label: 'Dificuldade: Todas' },
+              { key: DrillDifficulty.BEGINNER, label: 'Nível 1' },
+              { key: DrillDifficulty.EASY, label: 'Nível 2' },
+              { key: DrillDifficulty.INTERMEDIATE, label: 'Nível 3' },
+              { key: DrillDifficulty.ADVANCED, label: 'Nível 4' },
+              { key: DrillDifficulty.PRO, label: 'Nível 5' },
+            ] as const
+          ).map((diffOpt) => {
+            const active = selectedDifficulty === diffOpt.key;
+            return (
+              <TouchableOpacity
+                key={String(diffOpt.key)}
+                activeOpacity={0.75}
+                style={[
+                  styles.filterPill,
+                  {
+                    backgroundColor: active ? theme.primarySoft : theme.surface,
+                    borderColor: active ? theme.primary : theme.borderNeutral,
+                  },
+                ]}
+                onPress={() =>
+                  setSelectedDifficulty(
+                    active && diffOpt.key !== 'ALL' ? 'ALL' : diffOpt.key
+                  )
+                }
+              >
+                <Text
+                  style={[
+                    styles.filterPillText,
+                    {
+                      color: active ? theme.primaryDark : theme.textMuted,
+                      fontSize: fs(10),
+                    },
+                  ]}
+                >
+                  {diffOpt.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        {/* Filtro por Duração Máxima */}
+        <View style={styles.pillsRow}>
+          {(
+            [
+              { key: 'ALL', label: 'Todas Durações' },
+              { key: 25, label: '<= 25s' },
+              { key: 35, label: '<= 35s' },
+              { key: 60, label: '<= 60s' },
+            ] as const
+          ).map((durOpt) => {
+            const active = maxDurationFilter === durOpt.key;
+            return (
+              <TouchableOpacity
+                key={String(durOpt.key)}
+                activeOpacity={0.75}
+                style={[
+                  styles.filterPill,
+                  {
+                    backgroundColor: active ? theme.primarySoft : theme.surface,
+                    borderColor: active ? theme.primary : theme.borderNeutral,
+                  },
+                ]}
+                onPress={() =>
+                  setMaxDurationFilter(
+                    active && durOpt.key !== 'ALL' ? 'ALL' : durOpt.key
+                  )
+                }
+              >
+                <Text
+                  style={[
+                    styles.filterPillText,
+                    {
+                      color: active ? theme.primaryDark : theme.textMuted,
+                      fontSize: fs(10),
+                    },
+                  ]}
+                >
+                  {durOpt.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        {/* Filtro por Sensores Requeridos */}
+        <View style={styles.pillsRow}>
+          {(
+            [
+              { key: 'ALL', label: 'Todos Sensores' },
+              { key: 'PIEZO_TARGETS', label: 'Piezo (A0-A4)' },
+              { key: 'LED_RING', label: 'Anel LED' },
+              { key: 'BUZZER', label: 'Buzzer' },
+              { key: 'BALL_MACHINE_SIM', label: 'Spinshot Sim' },
+            ] as const
+          ).map((sensorOpt) => {
+            const active = selectedSensorFilter === sensorOpt.key;
+            return (
+              <TouchableOpacity
+                key={sensorOpt.key}
+                activeOpacity={0.75}
+                style={[
+                  styles.filterPill,
+                  {
+                    backgroundColor: active ? theme.primarySoft : theme.surface,
+                    borderColor: active ? theme.primary : theme.borderNeutral,
+                  },
+                ]}
+                onPress={() =>
+                  setSelectedSensorFilter(
+                    active && sensorOpt.key !== 'ALL' ? 'ALL' : sensorOpt.key
+                  )
+                }
+              >
+                <Text
+                  style={[
+                    styles.filterPillText,
+                    {
+                      color: active ? theme.primaryDark : theme.textMuted,
+                      fontSize: fs(10),
+                    },
+                  ]}
+                >
+                  {sensorOpt.label}
                 </Text>
               </TouchableOpacity>
             );

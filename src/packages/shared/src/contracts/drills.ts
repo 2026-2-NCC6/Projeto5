@@ -268,7 +268,9 @@ export function bumpDrillVersion(
  * Verifica estados, limites seguros da máquina lançadora, janelas de sensores e regras Kids.
  */
 export function validateDrillDefinition(
-  drill: Partial<DrillDefinition & CreateOrUpdateDrillDto>
+  drill: Partial<Omit<DrillDefinition, 'changelog'> & Omit<CreateOrUpdateDrillDto, 'changelog'>> & {
+    changelog?: DrillChangelogEntry[] | string;
+  }
 ): DrillValidationResult {
   const errors: string[] = [];
   const warnings: string[] = [];

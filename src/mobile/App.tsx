@@ -78,7 +78,8 @@ function MainWorkspace() {
   const { user } = useAuth();
   const { state, actions } = useGameEngine(
     hardwareManager,
-    user ? user.name : 'Praticante Convidado'
+    user ? user.name : 'Praticante Convidado',
+    user?.profile
   );
   const {
     theme,
@@ -822,7 +823,9 @@ function MainWorkspace() {
                   <DrillCatalogCard
                     selectedDrill={state.selectedDrill}
                     isKidsMode={state.isKidsMode}
-                    drillsList={catalogDrills}
+                    drillsList={catalogDrills.filter(
+                      (d) => !d.status || d.status === 'PUBLISHED'
+                    )}
                     catalogSource={catalogSource}
                     onSelectDrill={actions.setSelectedDrill}
                     onStartDrill={() => setShowPrepModal(true)}
@@ -857,6 +860,10 @@ function MainWorkspace() {
               sessionEvents={state.sessionEvents}
               syncStatus={state.syncStatus}
               offlinePendingCount={state.offlinePendingCount}
+              motherPlatformReceipt={state.motherPlatformReceipt}
+              evolutionDeltaScore={state.evolutionDeltaScore}
+              apiRecommendations={state.apiRecommendations}
+              telemetryAuthorized={state.telemetryAuthorized}
               onRetryOfflineSync={actions.retryOfflineSync}
               onStartNewSession={() => {
                 setActiveTab('ARENA');
@@ -872,7 +879,9 @@ function MainWorkspace() {
               initialDrill={editorTargetDrill}
               onDrillSaved={(saved, allDrills) => {
                 setCatalogDrills(allDrills);
-                actions.setSelectedDrill(saved);
+                if (!saved.status || saved.status === 'PUBLISHED') {
+                  actions.setSelectedDrill(saved);
+                }
               }}
               onPlayDrillInArena={(playableDrill) => {
                 actions.setSelectedDrill(playableDrill);

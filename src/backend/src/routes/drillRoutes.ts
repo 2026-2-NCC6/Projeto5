@@ -8,7 +8,7 @@ import {
   updateDrillStatus,
   validateDrillEndpoint,
 } from '../controllers/drillController';
-import { optionalAuthenticateToken } from '../middlewares/auth';
+import { authenticateToken, optionalAuthenticateToken, requireRole } from '../middlewares/auth';
 
 export const drillRouter = Router();
 
@@ -18,8 +18,8 @@ drillRouter.post('/validate', optionalAuthenticateToken, validateDrillEndpoint);
 drillRouter.get('/:id', optionalAuthenticateToken, getDrillById);
 drillRouter.get('/:id/versions', optionalAuthenticateToken, getDrillVersions);
 
-// Criação, edição e publicação de treinos (RF14, RF15, RF16, RF20)
-drillRouter.post('/', optionalAuthenticateToken, createDrill);
-drillRouter.put('/:id', optionalAuthenticateToken, updateDrill);
-drillRouter.post('/:id/status', optionalAuthenticateToken, updateDrillStatus);
-drillRouter.patch('/:id/status', optionalAuthenticateToken, updateDrillStatus);
+// Criação, edição e publicação de treinos protegida por RBAC (RF01, RF14, RF15, RF16, RF20)
+drillRouter.post('/', authenticateToken, requireRole('TREINADOR', 'ADMIN'), createDrill);
+drillRouter.put('/:id', authenticateToken, requireRole('TREINADOR', 'ADMIN'), updateDrill);
+drillRouter.post('/:id/status', authenticateToken, requireRole('TREINADOR', 'ADMIN'), updateDrillStatus);
+drillRouter.patch('/:id/status', authenticateToken, requireRole('TREINADOR', 'ADMIN'), updateDrillStatus);
