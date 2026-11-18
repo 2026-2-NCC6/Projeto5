@@ -74,7 +74,19 @@ function detectMobileLanIp(): string | null {
  */
 export function resolveApiBaseUrl(): string {
   if (customHostIpOverride) {
-    const clean = customHostIpOverride.trim().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+    const trimmed = customHostIpOverride.trim();
+    if (trimmed.startsWith('https://')) {
+      const cleanHttps = trimmed.replace(/\/+$/, '');
+      return cleanHttps.endsWith('/api/v1') ? cleanHttps : `${cleanHttps}/api/v1`;
+    }
+    const clean = trimmed.replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+    const isIpOrLocalhost =
+      clean === 'localhost' ||
+      clean.startsWith('localhost:') ||
+      /^\d{1,3}(\.\d{1,3}){3}(:\d+)?$/.test(clean);
+    if (!isIpOrLocalhost && !clean.includes(':')) {
+      return `https://${clean}/api/v1`;
+    }
     const hostOnly = clean.includes(':') ? clean : `${clean}:3001`;
     return `http://${hostOnly}/api/v1`;
   }

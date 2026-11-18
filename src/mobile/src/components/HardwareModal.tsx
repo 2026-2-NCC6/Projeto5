@@ -137,9 +137,10 @@ export function HardwareView() {
         }
       } else {
         setIsPairingAuthorized(false);
+        const targetDisplay = hostIpInput.trim() || getDetectedHostIp();
         setPairingStatusMsg(
           activeMode === 'REMOTE_GATEWAY'
-            ? `Não foi possível conectar ao PC em ${hostIpInput}:3001. Verifique se o PC e o celular estão no mesmo Wi-Fi.`
+            ? `Não foi possível conectar ao Gateway em ${targetDisplay}. Verifique a conexão com o servidor.`
             : 'Falha ao abrir porta serial.'
         );
       }
@@ -288,8 +289,8 @@ export function HardwareView() {
           <WifiIcon size={16} color="#1D4ED8" />
           <Text style={[styles.gatewayBannerText, { color: '#1E40AF', fontSize: fs(11.5) }]}>
             {isConnected
-              ? `Conectado ao PC da Arena (${hostIpInput}:3001)! Comandos enviados do celular são transmitidos em tempo real via WebSocket.`
-              : `Toque em "Conectar ao PC da Arena" abaixo para parear seu celular com o servidor no PC (${hostIpInput}:3001).`}
+              ? `Conectado ao PC da Arena (${hostIpInput.trim() || getDetectedHostIp()})! Comandos enviados do celular são transmitidos em tempo real via WebSocket.`
+              : `Toque em "Conectar ao PC da Arena" abaixo para parear seu celular com o servidor (${hostIpInput.trim() || getDetectedHostIp()}).`}
           </Text>
         </View>
       )}
