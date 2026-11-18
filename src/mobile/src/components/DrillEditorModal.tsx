@@ -1436,7 +1436,7 @@ export const DrillEditorView: React.FC<DrillEditorViewProps> = ({
           )}
 
           <View style={styles.miniCourtGrid}>
-            {([1, 2, 5, 3, 4] as TargetId[]).map((id) => {
+            {([2, 5, 3, 1, 4] as TargetId[]).map((id) => {
               const lit = activeSimStep?.targetId === id;
               const isUsed = validation.requiredSensors.includes(id);
               return (

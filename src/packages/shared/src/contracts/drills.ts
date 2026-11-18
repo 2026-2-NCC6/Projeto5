@@ -6,28 +6,28 @@
 import type { TargetId } from '../protocol/serial';
 
 export const TargetZone = {
-  TOP_LEFT: 1,
-  TOP_RIGHT: 2,
-  BOTTOM_LEFT: 3,
+  BOTTOM_LEFT: 1,
+  TOP_LEFT: 2,
+  CENTER: 3,
   BOTTOM_RIGHT: 4,
-  CENTER: 5,
+  TOP_RIGHT: 5,
 } as const;
 export type TargetZone = (typeof TargetZone)[keyof typeof TargetZone];
 
 export const TARGET_LABELS: Record<TargetId, string> = {
-  1: 'Superior Esquerdo',
-  2: 'Superior Direito',
-  3: 'Inferior Esquerdo',
+  1: 'Inferior Esquerdo',
+  2: 'Superior Esquerdo',
+  3: 'Centro',
   4: 'Inferior Direito',
-  5: 'Centro',
+  5: 'Superior Direito',
 };
 
 export const TARGET_TACTICAL_NAMES: Record<TargetId, string> = {
-  1: 'Forehand Fundo',
-  2: 'Backhand Fundo',
-  3: 'Curta Esquerda',
+  1: 'Curta Esquerda',
+  2: 'Forehand Fundo',
+  3: 'Centro Estratégico',
   4: 'Saque / Paralela',
-  5: 'Centro Estratégico',
+  5: 'Backhand Fundo',
 };
 
 export const DrillCategory = {

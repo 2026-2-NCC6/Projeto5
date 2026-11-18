@@ -17,14 +17,6 @@ import { useResponsive } from './useResponsive';
 import { PlayIcon, TargetIcon, AwardIcon } from './Icons';
 import { EmergencyStopButton } from './EmergencyStopButton';
 
-const DISPLAY_TARGET_NUMBER: Record<TargetId, number> = {
-  1: 2,
-  2: 5,
-  3: 1,
-  4: 4,
-  5: 3,
-};
-
 interface TargetBoardProps {
   activeTarget: TargetId | null;
   ledCount: number; // 0..8 leds acesos no alvo ativo
@@ -116,13 +108,11 @@ export const TargetBoard: React.FC<TargetBoardProps> = ({
       }
     }
 
-    const displayTargetNumber = DISPLAY_TARGET_NUMBER[targetId];
-
     return (
       <TouchableOpacity
         key={targetId}
         accessibilityRole="button"
-        accessibilityLabel={`Alvo ${displayTargetNumber}: ${TARGET_LABELS[targetId]}`}
+        accessibilityLabel={`Alvo ${targetId}: ${TARGET_LABELS[targetId]}`}
         activeOpacity={0.8}
         style={[
           styles.targetCard,
@@ -146,7 +136,7 @@ export const TargetBoard: React.FC<TargetBoardProps> = ({
               },
             ]}
           >
-            #{displayTargetNumber}
+            #{targetId}
           </Text>
           {isActive && (
             <View
@@ -168,7 +158,7 @@ export const TargetBoard: React.FC<TargetBoardProps> = ({
             },
           ]}
         >
-          {isKidsMode && targetId === 5 ? '⭐ Alvo Mágico' : TARGET_LABELS[targetId]}
+          {isKidsMode && targetId === 3 ? '⭐ Alvo Mágico' : TARGET_LABELS[targetId]}
         </Text>
 
         <Text
@@ -288,8 +278,8 @@ export const TargetBoard: React.FC<TargetBoardProps> = ({
               }}
             >
               {isPaused
-                ? `⏸ Treino Pausado (Alvo #0${activeTarget ? DISPLAY_TARGET_NUMBER[activeTarget] : '-'})`
-                : `Alvo #0${activeTarget ? DISPLAY_TARGET_NUMBER[activeTarget] : '-'} ativo • 🎾 Lançadora: ${currentBallSpeedKmh} km/h (${currentSpinType})`}
+                ? `⏸ Treino Pausado (Alvo #0${activeTarget ?? '-'})`
+                : `Alvo #0${activeTarget ?? '-'} ativo • 🎾 Lançadora: ${currentBallSpeedKmh} km/h (${currentSpinType})`}
             </Text>
             <Text style={{ color: theme.textSecondary, fontWeight: '700', fontSize: fs(11) }}>
               {remainingMs} ms ({ledCount}/8 LEDs)
@@ -371,21 +361,21 @@ export const TargetBoard: React.FC<TargetBoardProps> = ({
         </View>
       )}
 
-      {/* Grid da Quadra: 2 Alvos Superiores, 1 Central, 2 Inferiores */}
+      {/* Grid da Quadra: 2 Alvos Superiores (2, 5), 1 Central (3), 2 Inferiores (1, 4) */}
       <View style={styles.courtArea}>
         <View style={[styles.courtGridRow, { gap: isMobile ? 8 : 14 }]}>
-          {renderSensorModule(1)}
           {renderSensorModule(2)}
+          {renderSensorModule(5)}
         </View>
 
         <View style={[styles.courtCenterRow, { marginVertical: isMobile ? 6 : 12 }]}>
           <View style={{ width: isMobile ? '72%' : '50%' }}>
-            {renderSensorModule(5, true)}
+            {renderSensorModule(3, true)}
           </View>
         </View>
 
         <View style={[styles.courtGridRow, { gap: isMobile ? 8 : 14 }]}>
-          {renderSensorModule(3)}
+          {renderSensorModule(1)}
           {renderSensorModule(4)}
         </View>
       </View>
